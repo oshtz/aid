@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Launch Media Review Board</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f4f6f8;
+        color: #18202f;
+      }
+
+      body {
+        margin: 0;
+        background: #f4f6f8;
+      }
+
+      main {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 56px 32px;
+      }
+
+      h1 {
+        margin: 0 0 16px;
+        font-size: 38px;
+        line-height: 1.1;
+      }
+
+      p,
+      figcaption {
+        font-size: 17px;
+        line-height: 1.55;
+      }
+
+      figure {
+        margin: 28px 0;
+      }
+
+      img,
+      video,
+      [role="img"] {
+        display: block;
+        width: 100%;
+        max-width: 720px;
+        border: 1px solid #c8d2df;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      img,
+      video {
+        height: 260px;
+        object-fit: cover;
+      }
+
+      [role="img"] {
+        display: grid;
+        height: 180px;
+        place-items: center;
+        background:
+          linear-gradient(90deg, #dce8f7 1px, transparent 1px),
+          linear-gradient(#dce8f7 1px, transparent 1px),
+          #ffffff;
+        background-size: 32px 32px;
+        color: #35506f;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Launch Media Review Board</h1>
+      <p>
+        The launch team is reviewing visible media assets before the browser-context
+        workflow is promoted into multi-step QA prompts.
+      </p>
+
+      <figure>
+        <img
+          alt="Dashboard screenshot showing launch readiness by region"
+          src="/media/dashboard.png?token=secret-value#private-fragment"
+          width="720"
+          height="260"
+        />
+        <figcaption>Launch readiness dashboard</figcaption>
+      </figure>
+
+      <figure>
+        <video
+          aria-label="Product walkthrough video"
+          poster="/media/walkthrough-poster.jpg?signature=do-not-leak"
+          width="720"
+          height="260"
+        ></video>
+        <figcaption>Two-minute product walkthrough for browser QA reviewers</figcaption>
+      </figure>
+
+      <div
+        role="img"
+        aria-label="Architecture diagram with browser context, provider stream, and side panel"
+      >
+        Browser context pipeline
+      </div>
+    </main>
+  </body>
+</html>

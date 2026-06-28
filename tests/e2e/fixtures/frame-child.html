@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Embedded QA Report</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #ffffff;
+        color: #172033;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 28px;
+      }
+
+      p,
+      li,
+      label {
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      form {
+        display: grid;
+        gap: 12px;
+        max-width: 460px;
+        margin-top: 18px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-weight: 700;
+      }
+
+      input {
+        min-height: 36px;
+        border: 1px solid #aab4c2;
+        border-radius: 6px;
+        padding: 0 10px;
+        font: inherit;
+      }
+
+      [role="listbox"] {
+        display: grid;
+        gap: 6px;
+        max-width: 460px;
+        margin-top: 18px;
+        padding: 8px;
+        border: 1px solid #aab4c2;
+        border-radius: 8px;
+      }
+
+      [role="option"] {
+        padding: 7px 9px;
+        border-radius: 6px;
+        font-size: 15px;
+      }
+
+      [aria-selected="true"],
+      [role="option"][id="frame-apac-option"] {
+        background: #e5edff;
+      }
+
+      table {
+        width: 100%;
+        max-width: 560px;
+        margin-top: 18px;
+        border-collapse: collapse;
+        font-size: 15px;
+      }
+
+      caption {
+        margin-bottom: 6px;
+        font-weight: 700;
+        text-align: left;
+      }
+
+      th,
+      td {
+        border: 1px solid #aab4c2;
+        padding: 7px 9px;
+        text-align: left;
+      }
+
+      figure {
+        max-width: 560px;
+        margin: 18px 0 0;
+      }
+
+      figure img,
+      video {
+        display: block;
+        width: 180px;
+        height: 78px;
+        object-fit: cover;
+        border: 1px solid #aab4c2;
+        border-radius: 8px;
+        background: #e5edff;
+      }
+
+      figcaption {
+        margin-top: 6px;
+        font-size: 14px;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Embedded QA Report</h1>
+    <p>Embedded frame status: Ready for QA.</p>
+    <p data-testid="frame-selection-insight">
+      Selected frame insight: embedded selections should reach Aid.
+    </p>
+    <ul>
+      <li>Frame owner: Platform QA</li>
+      <li>Frame token: sk-live-frame-secret123</li>
+      <li>Next action: validate side panel context refresh.</li>
+    </ul>
+    <p>
+      <a href="/embedded/checklist?token=secret-frame-action#private">Open embedded checklist</a>
+    </p>
+    <button type="button" aria-pressed="true">Run embedded check</button>
+    <ul aria-label="Embedded release checklist">
+      <li>
+        <label>
+          <input type="checkbox" checked />
+          Frame smoke test complete
+        </label>
+      </li>
+      <li>
+        <label>
+          <input type="checkbox" />
+          Frame security review pending
+        </label>
+      </li>
+      <li aria-current="step">Frame list secret sk-live-frame-list-secret123</li>
+    </ul>
+    <div
+      role="listbox"
+      aria-label="Embedded release region"
+      aria-activedescendant="frame-apac-option"
+    >
+      <div id="frame-emea-option" role="option" aria-selected="true">Frame EMEA rollout</div>
+      <div id="frame-apac-option" role="option">Frame APAC rollout</div>
+      <div id="frame-secret-option" role="option">Frame secret sk-live-frame-choice-secret123</div>
+    </div>
+    <table>
+      <caption>Embedded release table</caption>
+      <thead>
+        <tr>
+          <th>Region</th>
+          <th>Status</th>
+          <th>Note</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>EMEA</td>
+          <td>Ready</td>
+          <td>sk-live-frame-table-secret123</td>
+        </tr>
+        <tr>
+          <td>APAC</td>
+          <td>Waiting</td>
+          <td>No blocker</td>
+        </tr>
+      </tbody>
+    </table>
+    <figure>
+      <img
+        src="/media/frame-diagram.png?token=secret-frame-media#private"
+        alt="Embedded architecture diagram"
+      />
+      <figcaption>Embedded launch diagram</figcaption>
+    </figure>
+    <video
+      aria-label="Embedded walkthrough video"
+      poster="/media/frame-walkthrough.jpg?signature=secret-frame-poster#private"
+    ></video>
+    <form aria-label="Embedded release controls">
+      <label>
+        Frame approval
+        <input name="frame-approval" autocomplete="off" />
+      </label>
+      <label>
+        Frame API token
+        <input name="frame-token" type="password" />
+      </label>
+    </form>
+  </body>
+</html>

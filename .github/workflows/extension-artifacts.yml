@@ -1,0 +1,44 @@
+name: Extension Artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Validate release tag version
+        run: npm run release:version:tag-check
+
+      - name: Verify, smoke, and package extensions
+        run: xvfb-run --auto-servernum npm run release:check
+
+      - name: Upload extension packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: aid-extension-packages
+          path: |
+            artifacts/*.zip
+          if-no-files-found: error

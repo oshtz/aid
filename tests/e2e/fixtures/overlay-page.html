@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Overlay Help Workspace</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f8fafc;
+        color: #172033;
+      }
+
+      body {
+        margin: 0;
+        background: #f8fafc;
+      }
+
+      main {
+        max-width: 840px;
+        margin: 0 auto;
+        padding: 56px 32px;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 36px;
+      }
+
+      p,
+      button,
+      .overlay {
+        font-size: 16px;
+        line-height: 1.45;
+      }
+
+      button {
+        min-height: 42px;
+        margin-top: 18px;
+        border: 1px solid #94a3b8;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #172033;
+        cursor: pointer;
+        padding: 8px 12px;
+      }
+
+      .overlay {
+        width: 360px;
+        margin-top: 10px;
+        padding: 14px 16px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+      }
+
+      .overlay strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Overlay Help Workspace</h1>
+      <p>
+        This page shows a transient help overlay after a browser action.
+      </p>
+
+      <button
+        type="button"
+        data-testid="show-release-help"
+        aria-describedby="release-help"
+      >
+        Show release help
+      </button>
+
+      <div
+        id="release-help"
+        class="overlay"
+        role="tooltip"
+        aria-label="Release help"
+        hidden
+      >
+        <strong>Release help</strong>
+        Use the blue deploy button only after QA approval. Tooltip token
+        sk-live-tooltip-secret123 should stay redacted.
+      </div>
+    </main>
+
+    <script>
+      const button = document.querySelector('[data-testid="show-release-help"]');
+      const tooltip = document.querySelector('#release-help');
+
+      button.addEventListener('click', () => {
+        tooltip.hidden = false;
+      });
+    </script>
+  </body>
+</html>

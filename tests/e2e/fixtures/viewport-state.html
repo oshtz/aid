@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Viewport State Console</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f7f9fc;
+        color: #172033;
+      }
+
+      body {
+        margin: 0;
+        min-height: 2200px;
+        background: #f7f9fc;
+      }
+
+      main {
+        max-width: 840px;
+        margin: 0 auto;
+        padding: 56px 32px 120px;
+      }
+
+      h1 {
+        margin: 0 0 14px;
+        font-size: 38px;
+      }
+
+      p,
+      label,
+      input,
+      [contenteditable="true"] {
+        font-size: 17px;
+        line-height: 1.55;
+      }
+
+      .spacer {
+        height: 620px;
+      }
+
+      .panel {
+        padding: 20px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        font-weight: 700;
+      }
+
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 42px;
+        padding: 8px 10px;
+        border: 1px solid #94a3b8;
+        border-radius: 6px;
+      }
+
+      [contenteditable="true"] {
+        min-height: 96px;
+        padding: 10px 12px;
+        border: 1px solid #94a3b8;
+        border-radius: 6px;
+        background: #ffffff;
+        font-weight: 400;
+      }
+
+      [contenteditable="true"]:focus {
+        outline: 3px solid rgba(37, 99, 235, 0.18);
+        border-color: #2563eb;
+      }
+
+      .stack {
+        display: grid;
+        gap: 8px;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Viewport State Console</h1>
+      <p>
+        The focused filter lives lower on the page so Aid can report the current
+        viewport and active field after browser scrolling and typing.
+      </p>
+
+      <div class="spacer" aria-hidden="true"></div>
+
+      <section class="panel">
+        <label>
+          Project filter
+          <input data-testid="project-filter" value="" />
+        </label>
+        <p>Visible after scroll: release readiness controls.</p>
+      </section>
+
+      <div class="spacer" aria-hidden="true"></div>
+
+      <section class="panel">
+        <div class="stack">
+          <span id="launch-notes-label">Launch notes</span>
+          <div
+            data-testid="launch-notes-editor"
+            contenteditable="true"
+            role="textbox"
+            aria-labelledby="launch-notes-label"
+            aria-multiline="true"
+          >Draft launch state includes sk-live-rich-secret123</div>
+        </div>
+        <p>Visible after rich editor focus: selection range should reach Aid.</p>
+      </section>
+    </main>
+  </body>
+</html>

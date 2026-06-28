@@ -1,0 +1,62 @@
+{
+  "name": "aid-browser-extension",
+  "version": "0.1.0",
+  "description": "Cross-browser extension that docks a ChatGPT-style side panel with interchangeable LLM backends",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch --mode development",
+    "build": "npm run build:chrome",
+    "build:chrome": "tsc && vite build && npm run validate:build",
+    "build:firefox": "tsc && node build-firefox.js && npm run validate:build",
+    "package": "npm run package:chrome && npm run package:firefox && npm run check:artifacts",
+    "package:chrome": "npm run build:chrome && node tools/package-extension.js chrome",
+    "package:firefox": "npm run build:firefox && node tools/package-extension.js firefox",
+    "validate:build": "node validate-build.js",
+    "check:artifacts": "node tools/check-package-artifacts.js",
+    "release:check": "npm run release:version:check && npm run lint && npm run type-check && npm test && npm run test:e2e && npm run package",
+    "release:version:check": "node tools/assert-release-version.js",
+    "release:version:tag-check": "node tools/assert-release-version.js --require-tag",
+    "publish:stores:check": "node tools/assert-store-env.js",
+    "publish:chrome:store": "npm run release:version:tag-check && npm run package:chrome && node tools/assert-store-env.js chrome && node tools/publish-chrome-web-store.js --publish",
+    "publish:firefox:amo": "npm run release:version:tag-check && npm run build:firefox && node tools/assert-store-env.js firefox && node tools/publish-firefox-amo.js",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint . --ext ts,tsx --fix",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run build:chrome && playwright test",
+    "test:e2e:live:lmstudio": "npm run build:chrome && playwright test tests/e2e/lmstudio-live.spec.ts --timeout=180000",
+    "test:e2e:live:ollama": "npm run build:chrome && playwright test tests/e2e/ollama-live.spec.ts --timeout=180000",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "lucide-react": "^1.18.0",
+    "marked": "^9.1.6",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "webextension-polyfill": "^0.10.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/chrome": "^0.0.254",
+    "@types/node": "^22.15.0",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@types/webextension-polyfill": "^0.10.7",
+    "@typescript-eslint/eslint-plugin": "^8.61.0",
+    "@typescript-eslint/parser": "^8.61.0",
+    "@vitejs/plugin-react": "^6.0.2",
+    "eslint": "^8.55.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "prettier": "^3.1.1",
+    "typescript": "~5.9.0",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8",
+    "web-ext": "^10.4.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

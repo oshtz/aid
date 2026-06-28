@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Browser Action Workspace</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f6f8fb;
+        color: #172033;
+      }
+
+      body {
+        margin: 0;
+        background: #f6f8fb;
+      }
+
+      main {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 56px 32px;
+      }
+
+      h1 {
+        margin: 0 0 14px;
+        font-size: 38px;
+      }
+
+      p {
+        font-size: 17px;
+        line-height: 1.55;
+      }
+
+      .toolbar,
+      .tabs,
+      form,
+      details {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        margin-top: 24px;
+        padding: 18px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      a,
+      button,
+      input[type="submit"],
+      [role="tab"],
+      [role="menuitem"],
+      summary {
+        min-height: 36px;
+        padding: 8px 12px;
+        border: 1px solid #94a3b8;
+        border-radius: 6px;
+        background: #f8fafc;
+        color: #172033;
+        font-size: 15px;
+        text-decoration: none;
+      }
+
+      [aria-selected="true"] {
+        border-color: #2563eb;
+        background: #dbeafe;
+      }
+
+      :disabled,
+      [aria-disabled="true"] {
+        opacity: 0.55;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Browser Action Workspace</h1>
+      <p>
+        This page gives Aid visible controls to describe before a multi-step browser
+        prompt decides which link, tab, or button should be used next.
+      </p>
+
+      <div class="toolbar">
+        <a href="/launch/checklist?session=secret-action-token#owner">Open launch checklist</a>
+        <button type="button" aria-expanded="false">Refresh board</button>
+        <button type="button" aria-pressed="true">Pin current view</button>
+        <span role="menuitem" aria-label="Export CSV report" tabindex="0">Export</span>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Workspace views">
+        <button role="tab" aria-selected="true" type="button">QA tab</button>
+        <button role="tab" aria-selected="false" type="button">Release notes</button>
+      </div>
+
+      <form>
+        <input type="submit" value="Deploy now" disabled />
+      </form>
+
+      <details>
+        <summary>Advanced release options</summary>
+        <p>Hidden text appears only after the disclosure is opened.</p>
+      </details>
+
+      <a href="javascript:alert('do-not-leak')">Unsafe diagnostic link</a>
+    </main>
+  </body>
+</html>

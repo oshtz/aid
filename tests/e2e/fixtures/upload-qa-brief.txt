@@ -1,0 +1,1 @@
+QA brief fixture for Aid browser upload context.

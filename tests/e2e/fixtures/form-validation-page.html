@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Validation Console</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f8fafc;
+        color: #172033;
+      }
+
+      body {
+        margin: 0;
+        background: #f8fafc;
+      }
+
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 56px 32px;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 36px;
+      }
+
+      form,
+      label {
+        display: grid;
+        gap: 10px;
+      }
+
+      form {
+        margin-top: 24px;
+      }
+
+      p,
+      label,
+      input,
+      button {
+        font-size: 16px;
+        line-height: 1.45;
+      }
+
+      input {
+        min-height: 40px;
+        border: 1px solid #94a3b8;
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+
+      input[aria-invalid="true"] {
+        border-color: #dc2626;
+      }
+
+      button {
+        width: max-content;
+        min-height: 40px;
+        border: 1px solid #2563eb;
+        border-radius: 8px;
+        background: #2563eb;
+        color: #ffffff;
+        cursor: pointer;
+        padding: 8px 14px;
+      }
+
+      .error {
+        color: #b91c1c;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Validation Console</h1>
+      <p>
+        Submitting the launch form exposes visible validation state that Aid
+        should include in browser context.
+      </p>
+
+      <form novalidate>
+        <label>
+          Project owner
+          <input
+            data-testid="project-owner"
+            required
+            aria-required="true"
+            aria-invalid="false"
+            aria-errormessage="project-owner-error"
+          />
+        </label>
+        <p id="project-owner-error" class="error" hidden>
+          Project owner is required before launch.
+        </p>
+
+        <button type="submit" data-testid="submit-launch">Submit launch</button>
+      </form>
+    </main>
+
+    <script>
+      const form = document.querySelector('form');
+      const owner = document.querySelector('[data-testid="project-owner"]');
+      const error = document.querySelector('#project-owner-error');
+
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        if (!owner.value.trim()) {
+          owner.setAttribute('aria-invalid', 'true');
+          owner.setCustomValidity('Project owner is required before launch.');
+          error.hidden = false;
+          owner.focus();
+        }
+      });
+    </script>
+  </body>
+</html>

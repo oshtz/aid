@@ -1,0 +1,103 @@
+name: Publish Stores
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to publish, for example v0.1.0; defaults to selected ref
+        required: false
+        default: ""
+      target:
+        description: Store target to publish
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - chrome
+          - firefox
+      chrome_publish:
+        description: Submit the uploaded Chrome package for review
+        required: true
+        default: true
+        type: boolean
+      firefox_channel:
+        description: AMO channel for Firefox signing/submission
+        required: true
+        default: listed
+        type: choice
+        options:
+          - listed
+          - unlisted
+      firefox_approval_timeout_ms:
+        description: AMO approval wait timeout in milliseconds; 0 submits and returns
+        required: true
+        default: "0"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: extension-stores
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Validate release tag version
+        run: npm run release:version:tag-check
+
+      - name: Verify, smoke, and package extensions
+        run: xvfb-run --auto-servernum npm run release:check
+
+      - name: Upload Chrome package to Chrome Web Store
+        if: ${{ inputs.target == 'chrome' || inputs.target == 'both' }}
+        env:
+          CHROME_WEBSTORE_PUBLISHER_ID: ${{ secrets.CHROME_WEBSTORE_PUBLISHER_ID }}
+          CHROME_WEBSTORE_EXTENSION_ID: ${{ secrets.CHROME_WEBSTORE_EXTENSION_ID }}
+          CHROME_WEBSTORE_CLIENT_ID: ${{ secrets.CHROME_WEBSTORE_CLIENT_ID }}
+          CHROME_WEBSTORE_CLIENT_SECRET: ${{ secrets.CHROME_WEBSTORE_CLIENT_SECRET }}
+          CHROME_WEBSTORE_REFRESH_TOKEN: ${{ secrets.CHROME_WEBSTORE_REFRESH_TOKEN }}
+        run: |
+          node tools/assert-store-env.js chrome
+          ARGS=""
+          if [ "${{ inputs.chrome_publish }}" = "true" ]; then
+            ARGS="--publish"
+          fi
+          node tools/publish-chrome-web-store.js $ARGS
+
+      - name: Submit Firefox add-on to AMO
+        if: ${{ inputs.target == 'firefox' || inputs.target == 'both' }}
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          FIREFOX_AMO_CHANNEL: ${{ inputs.firefox_channel }}
+          FIREFOX_AMO_APPROVAL_TIMEOUT_MS: ${{ inputs.firefox_approval_timeout_ms }}
+        run: |
+          node tools/assert-store-env.js firefox
+          node tools/publish-firefox-amo.js --channel "$FIREFOX_AMO_CHANNEL" --approval-timeout "$FIREFOX_AMO_APPROVAL_TIMEOUT_MS"
+
+      - name: Upload store release outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: aid-store-release-${{ github.run_number }}
+          path: |
+            artifacts/*.zip
+            artifacts/firefox-signed/*
+          if-no-files-found: ignore

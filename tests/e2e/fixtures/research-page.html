@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Quarterly Browser Automation Report</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f5f7fb;
+        color: #172033;
+      }
+
+      body {
+        margin: 0;
+        background: #f5f7fb;
+      }
+
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 64px 32px;
+      }
+
+      h1 {
+        margin: 0 0 24px;
+        font-size: 42px;
+        line-height: 1.08;
+      }
+
+      section {
+        margin-top: 32px;
+        padding-top: 24px;
+        border-top: 1px solid #c9d2e3;
+      }
+
+      p,
+      li {
+        font-size: 18px;
+        line-height: 1.58;
+      }
+
+      .callout {
+        margin: 28px 0;
+        padding: 18px 20px;
+        border-left: 4px solid #0d766e;
+        background: #e9fbf7;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Quarterly Browser Automation Report</h1>
+      <p>
+        The report tracks whether Aid can follow browser state across page changes,
+        selected text, and multi-step conversations without losing the user intent.
+      </p>
+      <p class="callout" data-testid="selectable-insight">
+        Selected insight: multi-chain browser prompts must refresh page context before every provider request.
+      </p>
+      <section>
+        <h2>Key Findings</h2>
+        <ul>
+          <li>Fresh context is required after scrolling, tab switches, and DOM updates.</li>
+          <li>Provider prompts should include the currently selected text when the user has a selection.</li>
+          <li>Regression tests need to capture the provider payload, not only the rendered answer.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

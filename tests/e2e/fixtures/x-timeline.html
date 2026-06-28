@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Home / X</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #000;
+        color: #f7f9f9;
+      }
+
+      body {
+        margin: 0;
+        background: #000;
+      }
+
+      main {
+        width: 620px;
+        margin-left: 80px;
+        border-left: 1px solid #2f3336;
+        border-right: 1px solid #2f3336;
+      }
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        height: 72px;
+        padding: 18px 24px;
+        border-bottom: 1px solid #2f3336;
+        background: rgba(0, 0, 0, 0.9);
+        font-size: 21px;
+        font-weight: 700;
+      }
+
+      .composer {
+        height: 96px;
+        padding: 18px 24px;
+        border-bottom: 1px solid #2f3336;
+        color: #71767b;
+      }
+
+      article {
+        min-height: 240px;
+        padding: 18px 24px;
+        border-bottom: 1px solid #2f3336;
+        background: #000;
+      }
+
+      article strong {
+        display: block;
+        margin-bottom: 4px;
+        color: #f7f9f9;
+      }
+
+      article .handle {
+        color: #71767b;
+      }
+
+      article p {
+        margin: 12px 0;
+        line-height: 1.42;
+      }
+
+      article .metrics {
+        margin-top: 18px;
+        color: #71767b;
+        word-spacing: 24px;
+      }
+
+      .ad {
+        min-height: 300px;
+      }
+    </style>
+  </head>
+  <body>
+    <main aria-label="Timeline: For you">
+      <header>For you</header>
+      <section class="composer">What's happening?</section>
+
+      <article data-testid="tweet">
+        <strong>Ray Wang <span class="handle">@wangray</span></strong>
+        <p>
+          Holy crap, someone dug up Fable 5's underlying prompt and open-sourced it.
+          Replace it with Opus 4.8, and you can run Fable 5's effects.
+        </p>
+        <p>Specific steps: download the prompt, put it in Claude Code, and run the startup.</p>
+        <div class="metrics">54 replies 52 reposts 398 likes 94K views</div>
+      </article>
+
+      <article class="ad" data-testid="tweet">
+        <strong>Bybit <span class="handle">@Bybit_Official</span> Ad</strong>
+        <p>Something Bigger Has Just Taken Off. Don't Miss It Out. Click Here.</p>
+        <p>Liftoff achieved with a large promotional image.</p>
+        <div class="metrics">240 replies 789 reposts 6.9K likes 14M views</div>
+      </article>
+
+      <article data-testid="tweet">
+        <strong>monokern <span class="handle">@monokern</span></strong>
+        <p>
+          Xiaomi just dropped a FREE CLAUDE CODE with memory that persists between sessions
+          and nobody is talking about it.
+        </p>
+        <p>MiMo Code installs locally with zero configuration and zero API keys.</p>
+        <div class="metrics">32 replies 120 reposts 1.1K likes</div>
+      </article>
+
+      <article data-testid="tweet">
+        <strong>Browser Tools <span class="handle">@browsertools</span></strong>
+        <p>Post 4 after scrolling: a thread about reliable browser automation with fixtures.</p>
+        <div class="metrics">12 replies 40 reposts 300 likes</div>
+      </article>
+
+      <article data-testid="tweet">
+        <strong>Test Runner <span class="handle">@testrunner</span></strong>
+        <p>Post 5 after scrolling: deterministic fake model servers make prompt tests debuggable.</p>
+        <div class="metrics">9 replies 31 reposts 220 likes</div>
+      </article>
+
+      <article data-testid="tweet">
+        <strong>Agent Chain <span class="handle">@agentchain</span></strong>
+        <p>Post 6 after scrolling: multi-step browser actions need observable intermediate state.</p>
+        <div class="metrics">7 replies 24 reposts 180 likes</div>
+      </article>
+    </main>
+  </body>
+</html>

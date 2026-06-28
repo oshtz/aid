@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Launch Metrics Table</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f7f9fc;
+        color: #172033;
+      }
+
+      body {
+        margin: 0;
+        background: #f7f9fc;
+      }
+
+      main {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 56px 32px;
+      }
+
+      h1 {
+        margin: 0 0 14px;
+        font-size: 38px;
+      }
+
+      p,
+      td,
+      th,
+      [role="cell"],
+      [role="columnheader"] {
+        font-size: 16px;
+        line-height: 1.45;
+      }
+
+      table,
+      [role="grid"] {
+        width: 100%;
+        margin-top: 24px;
+        border-collapse: collapse;
+        border: 1px solid #cbd5e1;
+        background: #ffffff;
+      }
+
+      caption {
+        padding: 10px 0;
+        font-weight: 700;
+        text-align: left;
+      }
+
+      th,
+      td,
+      [role="cell"],
+      [role="columnheader"] {
+        padding: 10px 12px;
+        border: 1px solid #cbd5e1;
+        text-align: left;
+      }
+
+      th,
+      [role="columnheader"] {
+        background: #eaf1fb;
+        font-weight: 700;
+      }
+
+      [role="row"] {
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr 0.8fr;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Launch Metrics Table</h1>
+      <p>
+        This operational review page contains visible structured tables that should
+        remain understandable in browser prompts without leaking sensitive tokens.
+      </p>
+
+      <table>
+        <caption>Launch KPI table</caption>
+        <thead>
+          <tr>
+            <th>Region</th>
+            <th>Status</th>
+            <th>Owner</th>
+            <th>API token</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>EMEA</td>
+            <td>Ready</td>
+            <td>Ana</td>
+            <td>sk-live-table-secret123</td>
+          </tr>
+          <tr>
+            <td>APAC</td>
+            <td>Blocked</td>
+            <td>Bo</td>
+            <td>sk-live-table-secret456</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div role="grid" aria-label="Incident grid">
+        <div role="row">
+          <div role="columnheader">Incident</div>
+          <div role="columnheader">Severity</div>
+          <div role="columnheader">SLA</div>
+        </div>
+        <div role="row">
+          <div role="cell">Auth outage</div>
+          <div role="cell">High</div>
+          <div role="cell">15m</div>
+        </div>
+        <div role="row">
+          <div role="cell">Billing delay</div>
+          <div role="cell">Medium</div>
+          <div role="cell">2h</div>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

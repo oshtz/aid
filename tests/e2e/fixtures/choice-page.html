@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Choice Overlay Workspace</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f8fafc;
+        color: #172033;
+      }
+
+      body {
+        margin: 0;
+        background: #f8fafc;
+      }
+
+      main {
+        max-width: 840px;
+        margin: 0 auto;
+        padding: 56px 32px;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 36px;
+      }
+
+      p,
+      button,
+      [role="option"] {
+        font-size: 16px;
+        line-height: 1.45;
+      }
+
+      button {
+        min-width: 260px;
+        min-height: 42px;
+        margin-top: 18px;
+        border: 1px solid #94a3b8;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #172033;
+        cursor: pointer;
+        text-align: left;
+        padding: 8px 12px;
+      }
+
+      [role="listbox"] {
+        width: 320px;
+        margin-top: 8px;
+        padding: 6px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+      }
+
+      [role="option"] {
+        min-height: 36px;
+        padding: 8px 10px;
+        border-radius: 6px;
+      }
+
+      [role="option"][aria-selected="true"] {
+        background: #dbeafe;
+      }
+
+      [role="option"][data-active="true"] {
+        outline: 2px solid #2563eb;
+        background: #eff6ff;
+      }
+
+      [role="option"][aria-disabled="true"] {
+        color: #94a3b8;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Choice Overlay Workspace</h1>
+      <p>
+        The release region selector opens a visible ARIA listbox after a browser
+        click so Aid can describe available options and their state.
+      </p>
+
+      <button
+        type="button"
+        data-testid="open-region-selector"
+        aria-haspopup="listbox"
+        aria-expanded="false"
+        aria-controls="region-options"
+      >
+        Release region: EMEA rollout
+      </button>
+
+      <div
+        id="region-options"
+        role="listbox"
+        aria-label="Release region selector"
+        hidden
+      >
+        <div id="region-emea" role="option" aria-selected="true">EMEA rollout</div>
+        <div id="region-apac" role="option">APAC rollout</div>
+        <div id="region-latam" role="option" aria-disabled="true">LATAM rollout</div>
+        <div id="region-secret" role="option">Secret sk-live-choice-secret123</div>
+      </div>
+    </main>
+
+    <script>
+      const button = document.querySelector('[data-testid="open-region-selector"]');
+      const listbox = document.querySelector('#region-options');
+      const options = Array.from(listbox.querySelectorAll('[role="option"]'));
+      let activeIndex = -1;
+
+      const setActiveOption = (index) => {
+        activeIndex = index;
+        options.forEach((option) => option.removeAttribute('data-active'));
+
+        const activeOption = options[activeIndex];
+        if (!activeOption) {
+          button.removeAttribute('aria-activedescendant');
+          return;
+        }
+
+        activeOption.setAttribute('data-active', 'true');
+        button.setAttribute('aria-activedescendant', activeOption.id);
+      };
+
+      button.addEventListener('click', () => {
+        const nextOpen = listbox.hidden;
+        listbox.hidden = !nextOpen;
+        button.setAttribute('aria-expanded', String(nextOpen));
+        if (!nextOpen) {
+          setActiveOption(-1);
+        }
+      });
+
+      button.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowDown') {
+          return;
+        }
+
+        event.preventDefault();
+        if (listbox.hidden) {
+          listbox.hidden = false;
+          button.setAttribute('aria-expanded', 'true');
+        }
+
+        setActiveOption(activeIndex < 0 ? 1 : Math.min(activeIndex + 1, options.length - 1));
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Release Console</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f4f6fb;
+        color: #162033;
+      }
+
+      body {
+        margin: 0;
+        background: #f4f6fb;
+      }
+
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 48px 32px;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 40px;
+      }
+
+      p {
+        max-width: 640px;
+        font-size: 17px;
+        line-height: 1.55;
+      }
+
+      form {
+        display: grid;
+        gap: 18px;
+        margin-top: 28px;
+        padding: 24px;
+        border: 1px solid #cad2df;
+        border-radius: 10px;
+        background: #fff;
+      }
+
+      label {
+        display: grid;
+        gap: 7px;
+        font-weight: 700;
+      }
+
+      input,
+      select,
+      textarea {
+        min-height: 40px;
+        padding: 9px 11px;
+        border: 1px solid #b9c3d5;
+        border-radius: 6px;
+        font: inherit;
+      }
+
+      textarea {
+        min-height: 90px;
+      }
+
+      .check-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+      }
+
+      .help {
+        margin: -10px 0 0;
+        color: #526070;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Release Console</h1>
+      <p>
+        This page models a browser workflow where the user edits live form state before asking Aid
+        to reason about what is currently configured.
+      </p>
+
+      <form aria-label="Release settings">
+        <label>
+          Project name
+          <input name="project" autocomplete="off" />
+        </label>
+
+        <label>
+          Release status
+          <select name="status" aria-describedby="release-status-help">
+            <option>Draft</option>
+            <option>Ready for QA</option>
+            <option>Blocked</option>
+          </select>
+        </label>
+        <p id="release-status-help" class="help">
+          Choose Ready for QA unless production approval is complete. Helper token sk-live-description-secret123 should be redacted.
+        </p>
+
+        <label>
+          Notes
+          <textarea name="notes"></textarea>
+        </label>
+
+        <label class="check-row">
+          <input name="screenshots" type="checkbox" />
+          Include screenshots
+        </label>
+
+        <label>
+          API token
+          <input name="api_token" type="password" autocomplete="current-password" />
+        </label>
+      </form>
+    </main>
+  </body>
+</html>

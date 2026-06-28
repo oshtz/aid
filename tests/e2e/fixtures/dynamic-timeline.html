@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dynamic Timeline</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #080a0f;
+        color: #f7f9f9;
+      }
+
+      body {
+        margin: 0;
+        background: #080a0f;
+      }
+
+      main {
+        width: 640px;
+        margin: 0 auto;
+        padding: 28px 0 80px;
+      }
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 20px;
+        border: 1px solid #2f3336;
+        background: rgba(8, 10, 15, 0.94);
+      }
+
+      button {
+        min-height: 36px;
+        padding: 0 14px;
+        border: 0;
+        border-radius: 18px;
+        background: #1d9bf0;
+        color: #fff;
+        font-weight: 700;
+      }
+
+      article {
+        min-height: 160px;
+        padding: 22px 24px;
+        border: 1px solid #2f3336;
+        border-top: 0;
+        background: #000;
+      }
+
+      article strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .handle,
+      .metrics {
+        color: #71767b;
+      }
+
+      p {
+        margin: 10px 0;
+        line-height: 1.45;
+      }
+    </style>
+  </head>
+  <body>
+    <main aria-label="Dynamic browser timeline">
+      <header>
+        <strong>Dynamic Timeline</strong>
+        <button type="button" data-testid="refresh-feed">Load new posts</button>
+      </header>
+
+      <article data-testid="tweet">
+        <strong>Initial Alpha <span class="handle">@alpha</span></strong>
+        <p>Initial post one: cached context should disappear after the feed updates.</p>
+        <div class="metrics">10 replies 20 reposts 30 likes</div>
+      </article>
+      <article data-testid="tweet">
+        <strong>Initial Beta <span class="handle">@beta</span></strong>
+        <p>Initial post two: this should not be sent after the browser action.</p>
+        <div class="metrics">11 replies 21 reposts 31 likes</div>
+      </article>
+      <article data-testid="tweet">
+        <strong>Initial Gamma <span class="handle">@gamma</span></strong>
+        <p>Initial post three: stale page snapshots are not acceptable.</p>
+        <div class="metrics">12 replies 22 reposts 32 likes</div>
+      </article>
+    </main>
+
+    <script>
+      const updates = [
+        ['Live Browser State', '@browserstate', 'Updated post one: the user clicked a page control before asking Aid.'],
+        ['DOM Mutation Watch', '@domwatch', 'Updated post two: provider context must come from the mutated document.'],
+        ['Action Chain Result', '@actionchain', 'Updated post three: multi-step browser actions should be reflected in the prompt.'],
+      ];
+
+      document.querySelector('[data-testid="refresh-feed"]').addEventListener('click', () => {
+        document.querySelectorAll('article').forEach((article, index) => {
+          const [name, handle, text] = updates[index];
+          article.innerHTML = `
+            <strong>${name} <span class="handle">${handle}</span></strong>
+            <p>${text}</p>
+            <div class="metrics">${40 + index} replies ${80 + index} reposts ${120 + index} likes</div>
+          `;
+        });
+      });
+    </script>
+  </body>
+</html>

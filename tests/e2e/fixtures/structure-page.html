@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Launch Structure Workspace</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f7f9fc;
+        color: #172033;
+      }
+
+      body {
+        margin: 0;
+        background: #f7f9fc;
+      }
+
+      main {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 48px 32px;
+      }
+
+      nav,
+      section {
+        margin-top: 24px;
+        padding: 18px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 38px;
+      }
+
+      h2,
+      h3 {
+        margin: 0 0 12px;
+      }
+
+      p,
+      a {
+        font-size: 17px;
+        line-height: 1.55;
+      }
+
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      a {
+        border: 1px solid #94a3b8;
+        border-radius: 6px;
+        padding: 8px 12px;
+        color: #172033;
+        text-decoration: none;
+      }
+
+      [aria-current="page"] {
+        border-color: #2563eb;
+        background: #dbeafe;
+      }
+    </style>
+  </head>
+  <body>
+    <main aria-labelledby="workspace-title">
+      <h1 id="workspace-title">Launch Command Center</h1>
+      <p>
+        Page structure should help Aid answer where the user is without relying
+        only on flattened page text.
+      </p>
+
+      <nav aria-label="Workspace navigation">
+        <a href="/structure/overview">Overview</a>
+        <a aria-current="page" href="/structure/release-dashboard?token=sk-live-nav-secret123#private">
+          Release dashboard
+        </a>
+        <a href="/structure/settings">Settings</a>
+      </nav>
+
+      <section aria-labelledby="release-section-title">
+        <h2 id="release-section-title">Release readiness</h2>
+        <p>The active release section is visible in the first viewport.</p>
+      </section>
+
+      <section aria-label="Sensitive heading example">
+        <h3>Private token sk-live-structure-secret123</h3>
+        <p>Token-shaped heading text should be redacted from page structure.</p>
+      </section>
+    </main>
+  </body>
+</html>

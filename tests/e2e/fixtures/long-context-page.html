@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Long Context Console</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f8fafc;
+        color: #172033;
+      }
+
+      body {
+        margin: 0;
+        background: #f8fafc;
+      }
+
+      main {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 48px 32px 96px;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 38px;
+      }
+
+      p,
+      label,
+      input {
+        font-size: 17px;
+        line-height: 1.55;
+      }
+
+      form {
+        display: grid;
+        gap: 10px;
+        margin: 24px 0;
+        padding: 18px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        font-weight: 700;
+      }
+
+      input {
+        box-sizing: border-box;
+        width: min(100%, 520px);
+        min-height: 42px;
+        padding: 8px 10px;
+        border: 1px solid #94a3b8;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Long Context Console</h1>
+      <p>
+        This fixture makes the page body long enough to pressure the context
+        token budget while a live field remains important browser state.
+      </p>
+
+      <form>
+        <label>
+          Launch decision
+          <input data-testid="launch-decision" value="" />
+        </label>
+      </form>
+
+      <section id="long-copy" aria-label="Long release narrative"></section>
+    </main>
+
+    <script>
+      const container = document.getElementById('long-copy');
+      for (let index = 1; index <= 140; index += 1) {
+        const paragraph = document.createElement('p');
+        paragraph.textContent = `Long review paragraph ${index}: ${'release readiness narrative '.repeat(9)}`;
+        container.appendChild(paragraph);
+      }
+      const tail = document.createElement('p');
+      tail.textContent = 'final long-text tail should be outside the truncated provider prompt.';
+      container.appendChild(tail);
+    </script>
+  </body>
+</html>

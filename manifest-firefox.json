@@ -1,0 +1,79 @@
+{
+  "manifest_version": 3,
+  "name": "Aid",
+  "version": "0.1.0",
+  "description": "Cross-browser extension that docks a ChatGPT-style side panel with interchangeable LLM backends",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "{2f6b9f52-35ec-44cb-9f1d-4a37d4c7747c}",
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": [
+          "authenticationInfo",
+          "personalCommunications",
+          "browsingActivity",
+          "websiteContent"
+        ]
+      }
+    }
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://*.googleapis.com/*",
+    "https://openrouter.ai/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "scripts": ["background/service-worker.js"]
+  },
+  "sidebar_action": {
+    "default_title": "Aid",
+    "default_panel": "sidepanel.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "action": {
+    "default_title": "Toggle Aid",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options/index.html",
+    "open_in_tab": false
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; connect-src 'self' https://api.openai.com https://api.anthropic.com https://*.googleapis.com https://openrouter.ai http://localhost:* http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; object-src 'none';"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/fonts/*.woff2"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

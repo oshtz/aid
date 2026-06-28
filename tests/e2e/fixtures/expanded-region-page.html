@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Expanded Region Workspace</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f8fafc;
+        color: #172033;
+      }
+
+      body {
+        margin: 0;
+        background: #f8fafc;
+      }
+
+      main {
+        max-width: 840px;
+        margin: 0 auto;
+        padding: 56px 32px;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 36px;
+      }
+
+      p,
+      button {
+        font-size: 16px;
+        line-height: 1.45;
+      }
+
+      button {
+        display: block;
+        width: 100%;
+        min-height: 42px;
+        margin-top: 14px;
+        border: 1px solid #94a3b8;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #172033;
+        cursor: pointer;
+        padding: 8px 12px;
+        text-align: left;
+      }
+
+      [role="region"] {
+        margin-top: 8px;
+        padding: 14px 16px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Expanded Region Workspace</h1>
+      <p>
+        This page models an accordion where only opened panel content should
+        reach Aid browser context.
+      </p>
+
+      <button
+        id="release-toggle"
+        type="button"
+        data-testid="toggle-release-panel"
+        aria-expanded="false"
+        aria-controls="release-panel"
+      >
+        Release details
+      </button>
+      <section
+        id="release-panel"
+        role="region"
+        aria-labelledby="release-toggle"
+        hidden
+      >
+        <p>
+          Expanded release summary: QA approval is ready and region rollout can
+          proceed after smoke checks. Region token sk-live-region-secret123
+          should be redacted.
+        </p>
+      </section>
+
+      <button
+        id="billing-toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="billing-panel"
+      >
+        Billing details
+      </button>
+      <section
+        id="billing-panel"
+        role="region"
+        aria-labelledby="billing-toggle"
+        hidden
+      >
+        <p>Collapsed billing panel should stay hidden from the provider prompt.</p>
+      </section>
+    </main>
+
+    <script>
+      const releaseToggle = document.querySelector('#release-toggle');
+      const releasePanel = document.querySelector('#release-panel');
+
+      releaseToggle.addEventListener('click', () => {
+        const nextOpen = releasePanel.hidden;
+        releasePanel.hidden = !nextOpen;
+        releaseToggle.setAttribute('aria-expanded', String(nextOpen));
+      });
+    </script>
+  </body>
+</html>
