@@ -60,6 +60,7 @@ Aid is a browser extension that docks an AI chat side panel next to the current 
 
 ## Privacy
 
+- Full privacy policy: [PRIVACY.md](PRIVACY.md)
 - Aid does not operate a cloud service.
 - Requests go directly from your browser to the selected AI provider or local endpoint.
 - API keys use session-only browser extension storage by default.
