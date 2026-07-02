@@ -11,7 +11,7 @@ Aid is a browser extension that docks an AI chat side panel next to the current 
 ## Supported Browsers
 
 - Chrome: pending Chrome Web Store review
-- Firefox: pending Firefox Add-ons review
+- Firefox: available on [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/aid/)
 - Release packages: https://github.com/oshtz/aid/releases/tag/v0.1.0
 
 ## Features
@@ -38,6 +38,10 @@ Aid is a browser extension that docks an AI chat side panel next to the current 
 5. Choose "Load unpacked" and select the extracted folder.
 
 ### Firefox
+
+Install Aid from [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/aid/).
+
+For a temporary local build:
 
 1. Download `aid-firefox-<version>.zip` from the latest release.
 2. Open `about:debugging#/runtime/this-firefox`.
