@@ -345,6 +345,16 @@ export const OptionsPage: React.FC = () => {
 
       if (isValid) {
         let nextSettings = settings;
+        let nextAuthMap = authMap;
+
+        if (config.authType === 'none') {
+          const explicitAuth: ProviderAuth = {
+            kind: 'none',
+            host: auth?.host || config.endpoint,
+          };
+          nextAuthMap = { ...authMap, [providerId]: explicitAuth };
+          setAuthMap(nextAuthMap);
+        }
 
         try {
           const models = await provider.getModels();
@@ -367,7 +377,7 @@ export const OptionsPage: React.FC = () => {
           console.warn(`Failed to load models for ${providerId}:`, modelError);
         }
 
-        await persistSettings(`${config.name} connection works and was saved.`, nextSettings);
+        await persistSettings(`${config.name} connection works and was saved.`, nextSettings, nextAuthMap);
       } else {
         setMessage({ type: 'error', text: `${config.name} connection failed.` });
       }

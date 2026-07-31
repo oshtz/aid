@@ -18,6 +18,7 @@ Aid is a browser extension that docks an AI chat side panel next to the current 
 
 - Side panel chat for Chrome and Firefox.
 - Providers: OpenAI, Anthropic Claude, Google Gemini, OpenRouter, Ollama, and LM Studio.
+- Focused first-run setup for OpenRouter or Ollama, with model discovery and in-panel reconnect.
 - Opt-in current-page Agent mode (beta) for OpenAI, OpenRouter, Ollama, and LM Studio, with inline approvals for consequential actions.
 - Current-page context with redaction for common secrets, tokens, passwords, and private URL patterns.
 - Context inspector with attach/detach control, token estimate, and redacted provider prompt preview.
@@ -57,7 +58,7 @@ For a temporary local build:
 
 1. Open Aid from the browser toolbar or sidebar.
 2. Review and accept the in-extension data disclosure before Aid reads a page or contacts a provider.
-3. Configure at least one provider, test the connection, and choose a model.
+3. Connect OpenRouter or Ollama in the side panel, or open Options for another provider or advanced settings.
 4. Ask about the current page, review the attached context, run a selected-text quick action, or attach an image for a vision-capable model.
 5. To operate the current page, choose **Agent Beta** in the composer. Links and sensitive fields are blocked, consequential actions require approval, and navigation or switching tabs stops the run.
 

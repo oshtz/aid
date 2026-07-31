@@ -52,6 +52,18 @@ export const pickRecommendedModel = (providerId: ProviderId, models: string[]): 
   return models[0];
 };
 
+export const resolveActivationModel = (
+  providerId: Extract<ProviderId, 'openrouter' | 'ollama'>,
+  models: string[],
+  manualModel: string,
+  savedModel?: string
+): string | undefined => {
+  const manual = manualModel.trim();
+  if (manual) return manual;
+  if (savedModel && models.includes(savedModel)) return savedModel;
+  return pickRecommendedModel(providerId, models);
+};
+
 export const isLikelyVisionModel = (providerId: ProviderId, model: string): boolean => {
   const normalizedModel = model.trim();
   if (!normalizedModel || TEXT_ONLY_MODEL_PATTERN.test(normalizedModel)) {

@@ -52,6 +52,7 @@ import {
 import { ChatHistoryPanel } from './ChatHistoryPanel';
 import { ContextInspector } from './ContextInspector';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { ProviderActivation } from './ProviderActivation';
 import { DataDisclosure } from '@/shared/DataDisclosure';
 import {
   DATA_DISCLOSURE_VERSION,
@@ -412,6 +413,7 @@ export const SidePanel: React.FC = () => {
   const [showChatHistory, setShowChatHistory] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>();
   const [activePanel, setActivePanel] = useState<PanelName | null>(null);
+  const [providerConnectionIssue, setProviderConnectionIssue] = useState<ProviderId | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -457,10 +459,17 @@ export const SidePanel: React.FC = () => {
   }, [chatState.messages]);
 
   useEffect(() => {
-    if (currentProvider && !isLoading && hasAcceptedDataDisclosure(extensionSettings || undefined)) {
+    if (
+      currentProvider &&
+      !isLoading &&
+      defaultModels[currentProvider]?.trim() &&
+      hasAcceptedDataDisclosure(extensionSettings || undefined)
+    ) {
       loadModelsForProvider(currentProvider, defaultModels[currentProvider]);
     }
-  }, [currentProvider, isLoading, defaultModels, extensionSettings]);
+    // All state read by loadModelsForProvider is listed here; the helper is intentionally render-local.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authMap, currentProvider, isLoading, defaultModels, extensionSettings]);
 
   const openPanel = (panel: PanelName) => {
     setActivePanel((current) => (current === panel ? null : panel));
@@ -648,8 +657,8 @@ export const SidePanel: React.FC = () => {
       });
       if (response?.error) throw new Error(response.error);
 
-      setExtensionSettings(nextSettings);
       await updateCurrentContext();
+      setExtensionSettings(nextSettings);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to save disclosure choice.');
     } finally {
@@ -791,28 +800,43 @@ export const SidePanel: React.FC = () => {
   const loadModelsForProvider = async (providerId: ProviderId, preferredModel?: string) => {
     setLoadingModels(true);
     try {
+      const config = ProviderFactory.getProviderConfig(providerId);
+      const auth = authMap[providerId] || (config?.authType === 'none'
+        ? { kind: 'none' as const, host: config.endpoint }
+        : undefined);
+      if (!auth) {
+        setAvailableModels([]);
+        setCurrentModel(preferredModel || '');
+        setModelSearch(preferredModel || '');
+        if (preferredModel) setProviderConnectionIssue(providerId);
+        return;
+      }
+
       const response = await browser.runtime.sendMessage({
-        type: 'GET_PROVIDER_MODELS',
-        payload: { providerId },
+        type: 'TEST_PROVIDER',
+        payload: { providerId, auth },
       });
 
-      if (response.error) {
+      if (response.error || !response.success) {
         console.warn(`Failed to load models for ${providerId}:`, response.error);
         setAvailableModels([]);
         setCurrentModel(preferredModel || '');
         setModelSearch(preferredModel || '');
+        if (preferredModel) setProviderConnectionIssue(providerId);
       } else {
         const models = response.models || [];
         const nextModel = preferredModel || pickRecommendedModel(providerId, models) || '';
         setAvailableModels(models);
         setCurrentModel(nextModel);
         setModelSearch(nextModel);
+        setProviderConnectionIssue((current) => current === providerId ? null : current);
       }
     } catch (error) {
       console.warn(`Failed to load models for ${providerId}:`, error);
       setAvailableModels([]);
       setCurrentModel(preferredModel || '');
       setModelSearch(preferredModel || '');
+      if (preferredModel) setProviderConnectionIssue(providerId);
     } finally {
       setLoadingModels(false);
     }
@@ -825,6 +849,7 @@ export const SidePanel: React.FC = () => {
     }
 
     setCurrentProvider(providerId);
+    setProviderConnectionIssue(null);
     await loadModelsForProvider(providerId, defaultModels[providerId]);
   };
 
@@ -1578,6 +1603,21 @@ export const SidePanel: React.FC = () => {
     void browser.runtime.openOptionsPage();
   };
 
+  const handleProviderConnected = async (
+    providerId: Extract<ProviderId, 'openrouter' | 'ollama'>,
+    auth: ProviderAuthMap[string],
+    model: string
+  ) => {
+    setAuthMap((current) => ({ ...current, [providerId]: auth }));
+    setDefaultModels((current) => ({ ...current, [providerId]: model }));
+    setCurrentProvider(providerId);
+    setCurrentModel(model);
+    setModelSearch(model);
+    setProviderConnectionIssue(null);
+    await updateCurrentContext();
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
   const handlePanelModeChange = (mode: PanelMode) => {
     if (chatState.isLoading || mode === panelMode) {
       return;
@@ -1608,6 +1648,21 @@ export const SidePanel: React.FC = () => {
   const hasAuth = (() => {
     return isProviderConfigured(currentProvider, authMap);
   })();
+
+  const usableProvider = providerOptions.find(({ id }) => (
+    Boolean(defaultModels[id]?.trim()) && isProviderConfigured(id, authMap)
+  ));
+  const savedProvider = extensionSettings?.defaultProvider as ProviderId | undefined;
+  const savedModel = savedProvider ? defaultModels[savedProvider] : undefined;
+  const reconnectProvider = providerConnectionIssue || (
+    savedProvider && savedModel && !isProviderConfigured(savedProvider, authMap)
+      ? savedProvider
+      : null
+  );
+  const reconnectModel = reconnectProvider ? defaultModels[reconnectProvider] : undefined;
+  const reconnectAuth = reconnectProvider ? authMap[reconnectProvider] : undefined;
+  const reconnectHost = reconnectAuth?.kind === 'none' ? reconnectAuth.host : undefined;
+  const needsReconnect = Boolean(reconnectProvider && reconnectModel);
 
   const currentProviderConfig = ProviderFactory.getProviderConfig(currentProvider);
   const currentPage = currentContext[0];
@@ -1653,6 +1708,36 @@ export const SidePanel: React.FC = () => {
     (contextStatus.state === 'empty' || contextStatus.state === 'error');
 
   const renderEmptyState = () => {
+    if (needsReconnect && reconnectProvider) {
+      return (
+        <div className="chat-empty activation-empty reconnect-empty">
+          <ProviderActivation
+            defaultModels={defaultModels}
+            reconnectProvider={reconnectProvider}
+            savedModel={reconnectModel}
+            savedHost={reconnectHost}
+            pagePermissionTarget={getContextPermissionOrigin(contextDiagnostics) || currentContext[0]?.url}
+            compact
+            onConnected={(providerId, auth, model) => void handleProviderConnected(providerId, auth, model)}
+            onOpenOptions={openSettings}
+          />
+        </div>
+      );
+    }
+
+    if (!usableProvider) {
+      return (
+        <div className="chat-empty activation-empty">
+          <ProviderActivation
+            defaultModels={defaultModels}
+            pagePermissionTarget={getContextPermissionOrigin(contextDiagnostics) || currentContext[0]?.url}
+            onConnected={(providerId, auth, model) => void handleProviderConnected(providerId, auth, model)}
+            onOpenOptions={openSettings}
+          />
+        </div>
+      );
+    }
+
     if (!hasAuth) {
       return (
         <div className="chat-empty">
@@ -1773,7 +1858,7 @@ export const SidePanel: React.FC = () => {
         <p>Ask a question, use the current selection, or open tools for a focused writing action.</p>
         <div className="prompt-chips">
           <button onClick={() => handleQuickAction('summarize')}>
-            Summarize page
+            Summarize this page
           </button>
           <button onClick={() => openPanel('context')}>
             View context
@@ -2144,6 +2229,20 @@ export const SidePanel: React.FC = () => {
             renderEmptyState()
           ) : (
             <>
+              {needsReconnect && reconnectProvider && (
+                <div className="inline-reconnect">
+                  <ProviderActivation
+                    defaultModels={defaultModels}
+                    reconnectProvider={reconnectProvider}
+                    savedModel={reconnectModel}
+                    savedHost={reconnectHost}
+                    pagePermissionTarget={getContextPermissionOrigin(contextDiagnostics) || currentContext[0]?.url}
+                    compact
+                    onConnected={(providerId, auth, model) => void handleProviderConnected(providerId, auth, model)}
+                    onOpenOptions={openSettings}
+                  />
+                </div>
+              )}
               {chatState.messages.map((message) => {
                 const messageWithStatus = message as MessageWithStatus;
 

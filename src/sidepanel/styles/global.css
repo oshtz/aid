@@ -572,6 +572,189 @@ button {
   backdrop-filter: blur(18px);
 }
 
+.activation-empty {
+  justify-content: flex-start;
+  overflow-y: auto;
+  padding-top: 18px;
+}
+
+.provider-activation {
+  width: min(100%, 430px);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--surface-strong);
+  text-align: left;
+  box-shadow: var(--shadow);
+}
+
+.provider-activation.compact {
+  gap: 10px;
+  padding: 15px;
+}
+
+.inline-reconnect {
+  display: grid;
+  place-items: center;
+  padding: 4px 0 12px;
+}
+
+.activation-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.activation-heading .empty-mark {
+  flex: 0 0 auto;
+}
+
+.provider-activation h2,
+.provider-activation p {
+  max-width: none;
+  margin: 0;
+}
+
+.provider-activation h2 {
+  font-size: 17px;
+}
+
+.provider-activation p {
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
+.activation-paths {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.activation-paths > button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-soft);
+  text-align: left;
+}
+
+.activation-paths > button.active {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--text);
+}
+
+.activation-paths span {
+  display: grid;
+  min-width: 0;
+}
+
+.activation-paths small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.activation-form {
+  display: grid;
+  gap: 10px;
+}
+
+.activation-form label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.activation-form label small {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.activation-form input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font: inherit;
+}
+
+.activation-form input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.activation-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.activation-models button {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 10px;
+}
+
+.activation-models button.active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.activation-error {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line));
+  border-radius: 8px;
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.activation-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.activation-actions a,
+.activation-advanced {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-soft);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.activation-actions .primary-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.activation-advanced {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
 .mode-switch {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2177,6 +2360,10 @@ button {
   }
 
   .tool-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .activation-paths {
     grid-template-columns: 1fr;
   }
 }

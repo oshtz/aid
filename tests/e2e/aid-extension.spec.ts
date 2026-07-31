@@ -581,7 +581,7 @@ test.describe('Aid extension browser E2E', () => {
       'main'
     );
 
-    await panelPage.getByRole('button', { name: 'Summarize page' }).click();
+    await panelPage.getByRole('button', { name: 'Summarize this page' }).click();
 
     const providerRequest = await providerServer.waitForChatRequestAt(0);
     const latestUserMessage = getLatestUserMessageContent(providerRequest);

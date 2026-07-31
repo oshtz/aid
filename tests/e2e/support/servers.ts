@@ -319,6 +319,13 @@ export const createFakeProviderServer = async (): Promise<FakeProviderServer> =>
       return;
     }
 
+    if (request.method === 'GET' && url.pathname === '/api/tags') {
+      writeCorsHeaders(response, 'application/json; charset=utf-8');
+      response.writeHead(200);
+      response.end(JSON.stringify({ models: [{ name: 'llava', model: 'llava' }] }));
+      return;
+    }
+
     if (request.method === 'POST' && url.pathname === '/v1/chat/completions') {
       const body = await readJsonBody(request) as FakeProviderChatRequest;
       resolveChatRequest(body);
