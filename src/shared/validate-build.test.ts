@@ -20,20 +20,34 @@ const validChromeManifest = () => ({
   web_accessible_resources: [],
 });
 
+const firefoxUiFontFiles = [
+  'InstrumentSans-latin.woff2',
+  'InstrumentSans-latin-ext.woff2',
+  'MomoTrustDisplay-latin.woff2',
+  'MomoTrustDisplay-latin-ext.woff2',
+  'MomoTrustDisplay-vietnamese.woff2',
+];
+
 const createBuildFixture = (manifest: object): string => {
   const cwd = mkdtempSync(join(tmpdir(), 'aid-build-validation-'));
   const dist = join(cwd, 'dist');
 
-  for (const directory of ['background', 'content', 'sidepanel', 'options', 'icons']) {
+  for (const directory of ['background', 'content', 'sidepanel', 'options', 'icons', 'assets', 'assets/fonts']) {
     mkdirSync(join(dist, directory), { recursive: true });
   }
 
   writeFileSync(join(dist, 'manifest.json'), JSON.stringify(manifest, null, 2));
   writeFileSync(join(dist, 'background/service-worker.js'), 'console.log("background");\n');
   writeFileSync(join(dist, 'content/content-script.js'), 'console.log("content");\n');
+  writeFileSync(join(dist, 'sidepanel/index.js'), 'console.log("sidepanel");\n');
+  writeFileSync(join(dist, 'options/index.js'), 'console.log("options");\n');
   writeFileSync(join(dist, 'sidepanel/index.html'), '<!doctype html>\n');
   writeFileSync(join(dist, 'options/index.html'), '<!doctype html>\n');
   writeFileSync(join(dist, 'icons/icon-16.png'), '');
+  for (const font of firefoxUiFontFiles) {
+    writeFileSync(join(dist, 'assets', font), '');
+    writeFileSync(join(dist, 'assets/fonts', font), '');
+  }
 
   return cwd;
 };
@@ -102,6 +116,28 @@ describe('validate-build', () => {
 
       expect(result.ok).toBe(false);
       expect(result.stderr).toContain('Manifest CSP must not allow arbitrary provider connections');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects Firefox bundles that use Chrome APIs before the compatibility shim', () => {
+    const manifest = {
+      ...validChromeManifest(),
+      browser_specific_settings: { gecko: { id: 'aid-test' } },
+      sidebar_action: { default_panel: 'sidepanel.html' },
+      background: { scripts: ['background/service-worker.js'] },
+    };
+    const cwd = createBuildFixture(manifest);
+    try {
+      writeFileSync(
+        join(cwd, 'dist/background/service-worker.js'),
+        'if (!globalThis.chrome?.runtime?.id) throw new Error("not an extension");\n'
+      );
+      const result = runValidateBuild(cwd);
+
+      expect(result.ok).toBe(false);
+      expect(result.stderr).toContain('without the Firefox compatibility shim');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

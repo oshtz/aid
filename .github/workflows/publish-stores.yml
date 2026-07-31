@@ -41,12 +41,12 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     environment: extension-stores
-    env:
-      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -58,7 +58,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox
 
       - name: Validate release tag version
         run: npm run release:version:tag-check

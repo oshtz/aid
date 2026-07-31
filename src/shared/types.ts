@@ -102,9 +102,12 @@ export interface ExtensionSettings {
   sessionOnly: boolean;
   theme: 'light' | 'dark' | 'auto';
   accentColor: string;
+  dataDisclosureVersion?: number;
 }
 
 export type ProviderId = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'ollama' | 'lmstudio';
+export type AgentProviderId = Extract<ProviderId, 'openai' | 'openrouter' | 'ollama' | 'lmstudio'>;
+export type PanelMode = 'chat' | 'agent';
 
 export interface ProviderConfig {
   id: ProviderId;
@@ -134,6 +137,7 @@ export type MessageType =
   | 'SUMMARIZE_PAGE'
   | 'EXTRACT_KEY_POINTS'
   | 'MAKE_LIST'
+  | 'AGENT_PAGE_CONTROL'
   | 'OPEN_SIDE_PANEL_WITH_SELECTION';
 
 export interface ExtensionMessage<T = unknown> {

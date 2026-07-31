@@ -2,6 +2,7 @@ import { BaseProvider, type StreamingResponse } from './base-provider';
 import type { ChatMessage, ChatDelta, ProviderAuth } from '@/shared/types';
 import { isLikelyVisionModel } from '@/shared/provider-ux';
 import { toOpenAIContent, type OpenAIContentPart } from './message-content';
+import { getLocalProviderBaseUrl } from './openai-compatible';
 
 interface LMStudioMessage {
   role: 'user' | 'assistant' | 'system';
@@ -57,9 +58,7 @@ interface LMStudioStats {
 
 export class LMStudioProvider extends BaseProvider {
   constructor(auth: ProviderAuth) {
-    const host = auth.host || 'localhost:1234';
-    const baseUrl = (host.startsWith('http') ? host : `http://${host}`).replace(/\/+$/, '');
-    super(auth, baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`);
+    super(auth, getLocalProviderBaseUrl('lmstudio', auth));
   }
 
   async sendChat(

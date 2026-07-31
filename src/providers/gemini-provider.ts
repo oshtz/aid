@@ -18,6 +18,9 @@ interface GeminiContent {
 
 interface GeminiRequest {
   contents: GeminiContent[];
+  system_instruction?: {
+    parts: Array<{ text: string }>;
+  };
   generationConfig?: {
     temperature?: number;
     maxOutputTokens?: number;
@@ -83,11 +86,13 @@ export class GeminiProvider extends BaseProvider {
 
     // Convert messages to Gemini format
     const contents: GeminiContent[] = [];
+    const systemMessages: string[] = [];
 
     for (const msg of messages) {
       if (msg.role === 'system') {
-        // Note: Gemini doesn't have a direct system message concept
-        // System messages could be prepended to the first user message if needed
+        if (msg.content.trim()) {
+          systemMessages.push(msg.content.trim());
+        }
         continue;
       } else {
         const images = msg.role === 'user' ? getImageAttachments(msg) : [];
@@ -108,6 +113,11 @@ export class GeminiProvider extends BaseProvider {
 
     const request: GeminiRequest = {
       contents,
+      ...(systemMessages.length > 0 ? {
+        system_instruction: {
+          parts: [{ text: systemMessages.join('\n\n') }],
+        },
+      } : {}),
       generationConfig: {
         temperature,
         maxOutputTokens: maxTokens,
@@ -115,8 +125,9 @@ export class GeminiProvider extends BaseProvider {
     };
 
     const endpoint = stream
-      ? `${this.baseUrl}/models/${model}:streamGenerateContent`
+      ? `${this.baseUrl}/models/${model}:streamGenerateContent?alt=sse`
       : `${this.baseUrl}/models/${model}:generateContent`;
+    const responseId = `gemini-${crypto.randomUUID()}`;
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -131,7 +142,7 @@ export class GeminiProvider extends BaseProvider {
 
     if (stream) {
       return {
-        [Symbol.asyncIterator]: () => this.parseGeminiStream(response),
+        [Symbol.asyncIterator]: () => this.parseGeminiStream(response, responseId),
       };
     } else {
       // Handle non-streaming response
@@ -141,7 +152,7 @@ export class GeminiProvider extends BaseProvider {
       return {
         async *[Symbol.asyncIterator] () {
           yield {
-            id: `gemini-${Date.now()}`,
+            id: responseId,
             contentPart: content,
             done: true,
             usage: data.usageMetadata ? {
@@ -212,7 +223,7 @@ export class GeminiProvider extends BaseProvider {
     }
   }
 
-  private async *parseGeminiStream(response: Response): AsyncGenerator<ChatDelta> {
+  private async *parseGeminiStream(response: Response, responseId: string): AsyncGenerator<ChatDelta> {
     const reader = response.body?.getReader();
     if (!reader) {
       throw new Error('No response body available');
@@ -220,49 +231,83 @@ export class GeminiProvider extends BaseProvider {
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let completed = false;
+    let lastUsage: ChatDelta['usage'];
+
+    const parseLine = (line: string): GeminiStreamChunk | 'done' | null => {
+      const normalizedLine = line.trimEnd();
+      if (!normalizedLine.startsWith('data:')) return null;
+
+      const data = normalizedLine.slice(5).trimStart();
+      if (data === '[DONE]') return 'done';
+      if (!data) return null;
+
+      try {
+        return JSON.parse(data) as GeminiStreamChunk;
+      } catch (error) {
+        console.warn('Failed to parse Gemini SSE chunk:', error);
+        return null;
+      }
+    };
 
     try {
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          buffer += decoder.decode();
+          break;
+        }
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
+        const lines = buffer.split(/\r?\n/);
         buffer = lines.pop() || '';
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') {
-              return;
+          const parsed = parseLine(line);
+          if (parsed === 'done') {
+            if (!completed) {
+              yield { id: responseId, contentPart: '', done: true, usage: lastUsage };
             }
-
-            try {
-              const parsed: GeminiStreamChunk = JSON.parse(data);
-              const delta = this.parseGeminiChunk(parsed);
-              if (delta) {
-                yield delta;
-              }
-            } catch (error) {
-              console.warn('Failed to parse Gemini SSE chunk:', error);
+            return;
+          }
+          if (parsed) {
+            const delta = this.parseGeminiChunk(parsed, responseId);
+            if (delta) {
+              lastUsage = delta.usage || lastUsage;
+              completed = completed || delta.done;
+              yield delta;
             }
           }
         }
+      }
+
+      const parsed = parseLine(buffer);
+      if (parsed && parsed !== 'done') {
+        const delta = this.parseGeminiChunk(parsed, responseId);
+        if (delta) {
+          lastUsage = delta.usage || lastUsage;
+          completed = completed || delta.done;
+          yield delta;
+        }
+      }
+
+      if (!completed) {
+        yield { id: responseId, contentPart: '', done: true, usage: lastUsage };
       }
     } finally {
       reader.releaseLock();
     }
   }
 
-  private parseGeminiChunk(chunk: GeminiStreamChunk): ChatDelta | null {
+  private parseGeminiChunk(chunk: GeminiStreamChunk, responseId: string): ChatDelta | null {
     const candidate = chunk.candidates?.[0];
-    if (!candidate) return null;
+    if (!candidate && !chunk.usageMetadata) return null;
 
-    const content = candidate.content?.parts?.[0]?.text || '';
-    const done = candidate.finishReason !== undefined;
+    const content = candidate?.content?.parts?.map((part) => part.text || '').join('') || '';
+    const done = candidate?.finishReason !== undefined;
 
     return {
-      id: `gemini-${Date.now()}`,
+      id: responseId,
       contentPart: content,
       done,
       usage: chunk.usageMetadata ? {
@@ -275,7 +320,7 @@ export class GeminiProvider extends BaseProvider {
 
   protected parseStreamChunk(chunk: GeminiStreamChunk): ChatDelta | null {
     // This method is required by BaseProvider but we use parseGeminiChunk instead
-    return this.parseGeminiChunk(chunk);
+    return this.parseGeminiChunk(chunk, `gemini-${crypto.randomUUID()}`);
   }
 
   protected override createHeaders(): Record<string, string> {

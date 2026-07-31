@@ -26,7 +26,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox
 
       - name: Run lint
         run: npm run lint
@@ -43,8 +43,5 @@ jobs:
       - name: Run Chrome extension e2e tests
         run: xvfb-run --auto-servernum npm run test:e2e
 
-      - name: Build Firefox extension
-        run: npm run build:firefox
-
-      - name: Lint Firefox extension
-        run: npx web-ext lint --source-dir=dist
+      - name: Run Firefox sidepanel context smoke test
+        run: npm run test:e2e:firefox

@@ -2869,7 +2869,7 @@ export class ContextCollector {
     );
   }
 
-  private static redactSensitiveText(text: string): string {
+  static redactSensitiveText(text: string): string {
     return this.cleanExtractedText(text)
       .split(/\s+/)
       .map((token) => {

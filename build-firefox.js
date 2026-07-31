@@ -2,6 +2,7 @@ import react from '@vitejs/plugin-react';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { build } from 'vite';
+import { disablePageAgentScriptExecution } from './tools/disable-page-agent-script-execution.js';
 
 const root = process.cwd();
 const alias = {
@@ -47,21 +48,11 @@ const copyDirFiles = (sourceDir, targetDir, predicate = () => true) => {
 };
 
 const patchFirefoxJavaScript = (source) => {
-  let patched = source
-    .replace(
-      /if \(!globalThis\.chrome\?\.runtime\?\.id\) throw new Error\("This script should only be loaded in a browser extension\."\);/g,
-      'if (!(globalThis.chrome?.runtime?.id || globalThis.browser?.runtime?.id)) throw new Error("This script should only be loaded in a browser extension.");'
-    )
-    .replace(
-      /if \(!globalThis\.chrome\?\.runtime\?\.id\) \{[\s\S]*?throw new Error\("This script should only be loaded in a browser extension\."\);[\s\S]*?\}/g,
-      'if (!(globalThis.chrome?.runtime?.id || globalThis.browser?.runtime?.id)) {\n            throw new Error("This script should only be loaded in a browser extension.");\n          }'
-    );
-
-  if (patched.includes('globalThis.chrome') && !patched.trimStart().startsWith(FIREFOX_API_SHIM)) {
-    patched = `${FIREFOX_API_SHIM}\n${patched}`;
+  if (source.includes('globalThis.chrome') && !source.trimStart().startsWith(FIREFOX_API_SHIM)) {
+    return `${FIREFOX_API_SHIM}\n${source}`;
   }
 
-  return patched;
+  return source;
 };
 
 const copyPatchedJavaScript = (sourceFile, targetFile) => {
@@ -82,6 +73,7 @@ const buildScriptEntry = async (name, input) => {
   try {
     await build({
       ...viteBase,
+      plugins: [disablePageAgentScriptExecution()],
       build: {
         outDir: tempDir,
         emptyOutDir: true,
@@ -116,7 +108,7 @@ const buildHtmlEntry = async (name, input) => {
   try {
     await build({
       ...viteBase,
-      plugins: [react()],
+      plugins: [react(), disablePageAgentScriptExecution()],
       build: {
         outDir: tempDir,
         emptyOutDir: true,
@@ -152,7 +144,6 @@ const buildHtmlEntry = async (name, input) => {
     }
 
     copyDirFiles(resolve(tempDir, 'styles'), resolve(root, 'dist/styles'), (file) => file.endsWith('.css'));
-    copyDirFiles(resolve(root, `src/${section}/styles`), resolve(root, `dist/${section}/styles`), (file) => file.endsWith('.css'));
   } finally {
     cleanDir(tempDir);
   }

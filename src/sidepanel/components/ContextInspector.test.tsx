@@ -50,4 +50,21 @@ describe('ContextInspector', () => {
     expect(html).toContain('Prompt only');
     expect(html).not.toContain('Provider prompt context');
   });
+
+  it('shows the context lookup failure instead of a generic empty preview', () => {
+    const html = renderToStaticMarkup(
+      <ContextInspector
+        contexts={[]}
+        isAttached
+        isOpen
+        emptyMessage="Site access is required for https://example.com."
+        onRefresh={vi.fn()}
+        onToggleAttached={vi.fn()}
+        onToggleOpen={vi.fn()}
+      />
+    );
+
+    expect(html).toContain('Site access is required for https://example.com.');
+    expect(html).not.toContain('No readable page context is available.');
+  });
 });

@@ -572,10 +572,163 @@ button {
   backdrop-filter: blur(18px);
 }
 
+.mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  margin-bottom: 7px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+}
+
+.mode-switch button {
+  display: inline-flex;
+  height: 27px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 11px;
+  transition: background var(--ease), color var(--ease), box-shadow var(--ease);
+}
+
+.mode-switch button.active {
+  background: var(--surface-strong);
+  color: var(--text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+}
+
+.mode-switch button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.mode-switch button span {
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
 .composer-tools {
   display: flex;
   gap: 6px;
   margin-bottom: 7px;
+}
+
+.agent-guidance {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 7px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.agent-guidance svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.agent-run-card {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  margin: 4px 0 10px;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.agent-run-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  animation: softPulse 1.4s infinite;
+}
+
+.agent-run-card div {
+  display: grid;
+  gap: 2px;
+}
+
+.agent-run-card strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.agent-run-card small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.agent-approval {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 7px;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--warning) 50%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface-strong));
+}
+
+.agent-approval > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.agent-approval strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 12px;
+}
+
+.agent-approval span,
+.agent-approval small {
+  overflow-wrap: anywhere;
+  color: var(--text-soft);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.agent-approval small {
+  color: var(--muted);
+}
+
+.agent-approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.agent-approval-actions button {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 10px;
 }
 
 .composer-tools button {
@@ -2026,6 +2179,66 @@ button {
   .tool-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.disclosure-screen,
+.options-disclosure-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.data-disclosure {
+  width: min(100%, 460px);
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow);
+}
+
+.data-disclosure-mark {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent);
+  color: white;
+  font: 700 20px/1 var(--font-display);
+}
+
+.data-disclosure h1,
+.data-disclosure p,
+.data-disclosure ul {
+  margin: 0;
+}
+
+.data-disclosure h1 {
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.data-disclosure p,
+.data-disclosure li {
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.data-disclosure ul {
+  display: grid;
+  gap: 7px;
+  padding-left: 20px;
+}
+
+.data-disclosure .data-disclosure-note {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { LMStudioProvider } from './lmstudio-provider';
 import { OllamaProvider } from './ollama-provider';
+import { normalizeOpenAICompatibleBaseUrl } from './openai-compatible';
 import type { ChatMessage } from '@/shared/types';
 
 describe('local provider host normalization', () => {
@@ -41,5 +42,19 @@ describe('local provider host normalization', () => {
       .sendChat(messages, 'llama3', { stream: false });
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe('http://localhost:11434/v1/chat/completions');
+  });
+
+  test('accepts only loopback HTTP hosts and normalizes their path', () => {
+    expect(normalizeOpenAICompatibleBaseUrl('127.0.0.1:9000/custom?x=1', 'localhost:11434'))
+      .toBe('http://127.0.0.1:9000/v1');
+    expect(normalizeOpenAICompatibleBaseUrl('http://localhost:1234/api/', 'localhost:11434'))
+      .toBe('http://localhost:1234/v1');
+
+    expect(() => normalizeOpenAICompatibleBaseUrl('https://localhost:11434', 'localhost:11434'))
+      .toThrow('http://localhost');
+    expect(() => normalizeOpenAICompatibleBaseUrl('http://192.168.1.20:11434', 'localhost:11434'))
+      .toThrow('http://localhost');
+    expect(() => normalizeOpenAICompatibleBaseUrl('http://example.com', 'localhost:11434'))
+      .toThrow('http://localhost');
   });
 });

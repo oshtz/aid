@@ -922,6 +922,80 @@ button {
   color: var(--text-soft);
 }
 
+.options-disclosure-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.data-disclosure {
+  width: min(100%, 520px);
+  display: grid;
+  gap: 14px;
+  padding: 28px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.data-disclosure-mark {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent);
+  color: white;
+  font: 700 20px/1 var(--font-display);
+}
+
+.data-disclosure h1,
+.data-disclosure p,
+.data-disclosure ul {
+  margin: 0;
+}
+
+.data-disclosure h1 {
+  font-size: 24px;
+}
+
+.data-disclosure p,
+.data-disclosure li {
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.data-disclosure ul {
+  display: grid;
+  gap: 7px;
+  padding-left: 20px;
+}
+
+.data-disclosure-note {
+  color: var(--muted) !important;
+  font-size: 12px !important;
+}
+
+.data-disclosure .primary-action {
+  min-height: 42px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: white;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.data-disclosure .primary-action:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 .spin-icon {
   animation: spin 900ms linear infinite;
 }

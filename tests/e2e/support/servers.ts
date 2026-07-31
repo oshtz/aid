@@ -37,6 +37,15 @@ export type FakeChatResponse =
       status?: number;
       statusText?: string;
       body?: unknown;
+    }
+  | {
+      kind: 'agent';
+      tool: 'click_element_by_index' | 'input_text' | 'select_dropdown_option' | 'done';
+      targetIndex?: number;
+      targetText?: string;
+      text?: string;
+      success?: boolean;
+      delayMs?: number;
     };
 
 interface PendingRequestWaiter {
@@ -166,12 +175,71 @@ const writeStreamChunk = (
 
 const writeFakeChatResponse = async (
   response: ServerResponse,
-  fakeResponse: FakeChatResponse
+  fakeResponse: FakeChatResponse,
+  requestBody: FakeProviderChatRequest
 ) => {
   if (fakeResponse.kind === 'error') {
     writeCorsHeaders(response, 'application/json; charset=utf-8');
     response.writeHead(fakeResponse.status ?? 500, fakeResponse.statusText);
     response.end(JSON.stringify(fakeResponse.body ?? { error: 'Fake provider failure' }));
+    return;
+  }
+
+  if (fakeResponse.kind === 'agent') {
+    if (fakeResponse.delayMs) {
+      await delay(fakeResponse.delayMs);
+    }
+    if (response.destroyed) {
+      return;
+    }
+
+    const pageContent = (requestBody.messages || [])
+      .map((message) => typeof message.content === 'string' ? message.content : '')
+      .join('\n');
+    const targetIndex = fakeResponse.targetIndex ?? (fakeResponse.targetText
+      ? findAgentTargetIndex(pageContent, fakeResponse.targetText)
+      : undefined);
+    const actionInput = fakeResponse.tool === 'done'
+      ? {
+          text: fakeResponse.text || 'Agent task complete.',
+          success: fakeResponse.success ?? true,
+        }
+      : fakeResponse.tool === 'click_element_by_index'
+        ? { index: targetIndex ?? 9999 }
+        : {
+            index: targetIndex ?? 9999,
+            text: fakeResponse.text || '',
+          };
+
+    writeCorsHeaders(response, 'application/json; charset=utf-8');
+    response.writeHead(200);
+    response.end(JSON.stringify({
+      id: 'aid-agent-e2e',
+      choices: [{
+        finish_reason: 'tool_calls',
+        message: {
+          role: 'assistant',
+          tool_calls: [{
+            id: `call-${Date.now()}`,
+            type: 'function',
+            function: {
+              name: 'AgentOutput',
+              arguments: JSON.stringify({
+                evaluation_previous_goal: 'Ready for the next safe action.',
+                memory: 'Follow the user task and Aid policy.',
+                next_goal: fakeResponse.tool === 'done' ? 'Finish the task.' : `Run ${fakeResponse.tool}.`,
+                action: { [fakeResponse.tool]: actionInput },
+              }),
+            },
+          }],
+        },
+      }],
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 20,
+        total_tokens: 120,
+      },
+    }));
     return;
   }
 
@@ -193,6 +261,17 @@ const writeFakeChatResponse = async (
   writeStreamChunk(response, '', 'stop');
   response.write('data: [DONE]\n\n');
   response.end();
+};
+
+const findAgentTargetIndex = (content: string, targetText: string): number | undefined => {
+  const targetIndex = content.toLowerCase().lastIndexOf(targetText.toLowerCase());
+  if (targetIndex === -1) {
+    return undefined;
+  }
+
+  const markers = [...content.slice(0, targetIndex).matchAll(/\*?\[(\d+)\]/g)];
+  const nearestMarker = markers.at(-1)?.[1];
+  return nearestMarker ? Number(nearestMarker) : undefined;
 };
 
 export const createFakeProviderServer = async (): Promise<FakeProviderServer> => {
@@ -246,7 +325,8 @@ export const createFakeProviderServer = async (): Promise<FakeProviderServer> =>
 
       await writeFakeChatResponse(
         response,
-        queuedChatResponses.shift() || { kind: 'stream' }
+        queuedChatResponses.shift() || { kind: 'stream' },
+        body
       );
       return;
     }

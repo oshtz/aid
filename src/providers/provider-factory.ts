@@ -6,6 +6,7 @@ import { GeminiProvider } from './gemini-provider';
 import { OpenRouterProvider } from './openrouter-provider';
 import { OllamaProvider } from './ollama-provider';
 import { LMStudioProvider } from './lmstudio-provider';
+import { normalizeOpenAICompatibleBaseUrl } from './openai-compatible';
 
 /**
  * Factory for creating provider instances
@@ -61,11 +62,14 @@ export class ProviderFactory {
     }
 
     // For local providers, validate host if provided
-    if (config.authType === 'none' && auth.host) {
+    if (config.authType === 'none') {
       try {
-        new URL(auth.host.startsWith('http') ? auth.host : `http://${auth.host}`);
-      } catch {
-        return { valid: false, error: `Invalid host URL for ${config.name}` };
+        normalizeOpenAICompatibleBaseUrl(auth.host || '', config.endpoint);
+      } catch (error) {
+        return {
+          valid: false,
+          error: error instanceof Error ? error.message : `Invalid host URL for ${config.name}`,
+        };
       }
     }
 

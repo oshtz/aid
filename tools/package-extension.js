@@ -9,6 +9,14 @@ if (!['chrome', 'firefox'].includes(target)) {
   process.exit(1);
 }
 
+const dirtyFiles = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+  encoding: 'utf8',
+}).trim();
+if (dirtyFiles) {
+  console.error('Refusing to create release-named packages from a dirty working tree. Commit or stash source changes first.');
+  process.exit(1);
+}
+
 execFileSync(
   'npx',
   [

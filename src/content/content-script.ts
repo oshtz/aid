@@ -2,6 +2,8 @@ import browser from 'webextension-polyfill';
 import { ContextCollector } from '@/shared/context-collector';
 import { AID_ACCENT_STORAGE_KEY, getAccentFocusRing, normalizeAccentColor } from '@/shared/accent';
 import type { ExtensionMessage, TabContext } from '@/shared/types';
+import type { AgentPageControlMessage } from '@/shared/agent';
+import { AgentPageController } from './agent-controller';
 
 type AidMenuThemeName = 'light' | 'dark';
 
@@ -83,6 +85,7 @@ class ContentScript {
   private lastSelection = '';
   private selectionTimeout: NodeJS.Timeout | null = null;
   private contextMenu: HTMLElement | null = null;
+  private agentPageController = new AgentPageController();
 
   constructor() {
     this.initialize();
@@ -102,7 +105,10 @@ class ContentScript {
     document.addEventListener('click', this.handleDocumentClick.bind(this));
   }
 
-  private async handleMessage(message: ExtensionMessage): Promise<unknown> {
+  private async handleMessage(
+    message: ExtensionMessage | AgentPageControlMessage,
+    sender: browser.Runtime.MessageSender
+  ): Promise<unknown> {
     switch (message.type) {
       case 'PING':
         // Respond to ping to confirm content script is active
@@ -116,6 +122,9 @@ class ContentScript {
 
       case 'SUMMARIZE_PAGE':
         return this.handleSummarizePage();
+
+      case 'AGENT_PAGE_CONTROL':
+        return this.agentPageController.handleMessage(message as AgentPageControlMessage, sender);
 
       default:
         return null;
@@ -783,8 +792,8 @@ class ContentScript {
   }
 }
 
-// Initialize content script
-const contentScript = new ContentScript();
-
-// Expose a page-local handle for diagnostics and repeated programmatic injection checks.
-(window as Window & { aidContentScript?: ContentScript }).aidContentScript = contentScript;
+// Programmatic context refreshes can race; keep page listeners and overlays single-instance.
+const aidWindow = window as Window & { aidContentScript?: ContentScript };
+if (!aidWindow.aidContentScript) {
+  aidWindow.aidContentScript = new ContentScript();
+}

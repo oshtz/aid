@@ -33,6 +33,11 @@ import {
   normalizeAccentColor,
 } from '@/shared/accent';
 import { ensureOriginPermission } from '@/shared/permissions';
+import { DataDisclosure } from '@/shared/DataDisclosure';
+import {
+  DATA_DISCLOSURE_VERSION,
+  hasAcceptedDataDisclosure,
+} from '@/shared/disclosure';
 
 const providers: ProviderId[] = ['openai', 'anthropic', 'gemini', 'openrouter', 'ollama', 'lmstudio'];
 
@@ -60,6 +65,7 @@ export const OptionsPage: React.FC = () => {
   const [providerModels, setProviderModels] = useState<Partial<Record<ProviderId, string[]>>>({});
   const [modelQueries, setModelQueries] = useState<Partial<Record<ProviderId, string>>>({});
   const [, setCurrentTheme] = useState<'light' | 'dark'>('dark');
+  const [isAcceptingDisclosure, setIsAcceptingDisclosure] = useState(false);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -252,6 +258,12 @@ export const OptionsPage: React.FC = () => {
       return true;
     }
 
+    const validation = ProviderFactory.validateProviderConfig(providerId, auth || { kind: 'none' });
+    if (!validation.valid) {
+      setMessage({ type: 'error', text: validation.error || `Invalid ${config.name} host.` });
+      return false;
+    }
+
     const granted = await ensureOriginPermission(auth?.host || config.endpoint);
     if (!granted) {
       setMessage({ type: 'error', text: `Grant access to ${config.name}'s host before connecting.` });
@@ -413,12 +425,33 @@ export const OptionsPage: React.FC = () => {
     setMessage({ type: 'info', text: 'All provider configuration cleared. Save to apply.' });
   };
 
+  const acceptDataDisclosure = async () => {
+    setIsAcceptingDisclosure(true);
+    const nextSettings = {
+      ...settings,
+      dataDisclosureVersion: DATA_DISCLOSURE_VERSION,
+    };
+
+    if (await persistSettings(undefined, nextSettings)) {
+      setSettings(nextSettings);
+    }
+    setIsAcceptingDisclosure(false);
+  };
+
   if (isLoading) {
     return (
       <div className="loading-screen">
         <Loader2 className="spin-icon" size={18} />
         <span>Loading settings</span>
       </div>
+    );
+  }
+
+  if (!hasAcceptedDataDisclosure(settings)) {
+    return (
+      <main className="options-disclosure-screen">
+        <DataDisclosure onAccept={() => void acceptDataDisclosure()} isSaving={isAcceptingDisclosure} />
+      </main>
     );
   }
 
@@ -474,7 +507,7 @@ export const OptionsPage: React.FC = () => {
               </div>
               <div className="summary-row">
                 <span>Storage</span>
-                <strong>{settings.sessionOnly ? 'Session' : 'Device'}</strong>
+                <strong>{settings.sessionOnly ? 'Session' : 'Browser profile'}</strong>
               </div>
             </section>
 
@@ -500,7 +533,7 @@ export const OptionsPage: React.FC = () => {
                     checked={!settings.sessionOnly}
                     onChange={() => setSettings(prev => ({ ...prev, sessionOnly: false }))}
                   />
-                  <span>Remember device</span>
+                  <span>Remember on this browser profile</span>
                 </label>
               </div>
             </section>

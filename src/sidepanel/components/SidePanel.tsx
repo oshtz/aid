@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import type { AgentActivity } from '@page-agent/core';
 import {
   Bot,
   CheckCircle2,
@@ -13,12 +14,14 @@ import {
   Languages,
   ListChecks,
   Menu,
+  MousePointerClick,
   PanelRightOpen,
   PenLine,
   Plus,
   RefreshCw,
   SendHorizontal,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   Wand2,
@@ -31,8 +34,14 @@ import { MessageHandler } from '@/shared/message-handler';
 import { ProviderFactory } from '@/providers/provider-factory';
 import { ChatHistoryManager } from '@/shared/storage';
 import { AID_ACCENT_STORAGE_KEY, applyAccentColorToDocument, resolveAccentColor } from '@/shared/accent';
-import { ensureOriginPermission, toOriginPermissionPattern } from '@/shared/permissions';
+import { ensureOriginPermission, ensureOriginPermissions, toOriginPermissionPattern } from '@/shared/permissions';
 import { buildSavedConversation } from '@/sidepanel/conversation';
+import { AidAgentRun, describeAgentActivity } from '@/sidepanel/agent-runtime';
+import {
+  getAgentProviderConnection,
+  isAgentProviderId,
+  type AgentActionAssessment,
+} from '@/shared/agent';
 import {
   getFriendlyProviderError,
   getProviderModelPresets,
@@ -43,9 +52,15 @@ import {
 import { ChatHistoryPanel } from './ChatHistoryPanel';
 import { ContextInspector } from './ContextInspector';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { DataDisclosure } from '@/shared/DataDisclosure';
+import {
+  DATA_DISCLOSURE_VERSION,
+  hasAcceptedDataDisclosure,
+} from '@/shared/disclosure';
 import type {
   ProviderAuthMap,
   ProviderId,
+  PanelMode,
   ExtensionSettings,
   ChatMessage,
   ChatImageAttachment,
@@ -55,6 +70,7 @@ import type {
   ChatConversation,
   ContextLookupDiagnostics,
   ContextDiagnosticsTab,
+  ExtensionMessage,
 } from '@/shared/types';
 
 const AID_THEME_STORAGE_KEY = 'aid-theme';
@@ -365,6 +381,8 @@ const buildProviderMessages = (messages: ChatMessage[]): ChatMessage[] => {
 export const SidePanel: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [authMap, setAuthMap] = useState<ProviderAuthMap>({});
+  const [extensionSettings, setExtensionSettings] = useState<ExtensionSettings | null>(null);
+  const [isAcceptingDisclosure, setIsAcceptingDisclosure] = useState(false);
   const [currentProvider, setCurrentProvider] = useState<ProviderId>('openai');
   const [currentModel, setCurrentModel] = useState<string>('');
   const [defaultModels, setDefaultModels] = useState<Partial<Record<ProviderId, string>>>({});
@@ -386,6 +404,11 @@ export const SidePanel: React.FC = () => {
   const [pendingImages, setPendingImages] = useState<ChatImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | undefined>();
+  const [panelMode, setPanelMode] = useState<PanelMode>('chat');
+  const [activeAgentRunId, setActiveAgentRunId] = useState<string | undefined>();
+  const [agentStep, setAgentStep] = useState(0);
+  const [agentActivity, setAgentActivity] = useState<AgentActivity | null>(null);
+  const [pendingAgentApproval, setPendingAgentApproval] = useState<AgentActionAssessment | null>(null);
   const [showChatHistory, setShowChatHistory] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>();
   const [activePanel, setActivePanel] = useState<PanelName | null>(null);
@@ -395,6 +418,9 @@ export const SidePanel: React.FC = () => {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const activeRequestIdRef = useRef<string | undefined>(undefined);
+  const agentRunRef = useRef<AidAgentRun | null>(null);
+  const agentApprovalResolverRef = useRef<((approved: boolean) => void) | null>(null);
 
   const logoUrl = browser.runtime.getURL('icons/icon-32.png');
 
@@ -421,15 +447,20 @@ export const SidePanel: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => () => {
+    agentApprovalResolverRef.current?.(false);
+    void agentRunRef.current?.stop();
+  }, []);
+
   useEffect(() => {
     scrollToBottom();
   }, [chatState.messages]);
 
   useEffect(() => {
-    if (currentProvider && !isLoading) {
+    if (currentProvider && !isLoading && hasAcceptedDataDisclosure(extensionSettings || undefined)) {
       loadModelsForProvider(currentProvider, defaultModels[currentProvider]);
     }
-  }, [currentProvider, isLoading, defaultModels]);
+  }, [currentProvider, isLoading, defaultModels, extensionSettings]);
 
   const openPanel = (panel: PanelName) => {
     setActivePanel((current) => (current === panel ? null : panel));
@@ -480,13 +511,23 @@ export const SidePanel: React.FC = () => {
       const nextDefaultProvider = response.settings?.defaultProvider as ProviderId | undefined;
       const nextDefaultModels = response.settings?.defaultModels || {};
 
+      setExtensionSettings(response.settings || null);
       applyAidTheme(resolveAidTheme(response.settings?.theme));
       applyAidAccent(resolveAccentColor(response.settings));
       setAuthMap(nextAuthMap);
       setDefaultModels(nextDefaultModels);
       setCurrentProvider(resolveActiveProvider(nextDefaultProvider, nextAuthMap));
 
-      await updateCurrentContext();
+      if (hasAcceptedDataDisclosure(response.settings)) {
+        await updateCurrentContext();
+      } else {
+        setCurrentContext([]);
+        setContextStatus({
+          state: 'empty',
+          message: 'Data disclosure required',
+          detail: 'Accept the disclosure before Aid reads the active page.',
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to initialize');
     } finally {
@@ -495,16 +536,26 @@ export const SidePanel: React.FC = () => {
   };
 
   const setupMessageListeners = () => {
-    const listener = (message: { type?: string; payload?: unknown }) => {
+    const listener = (message: ExtensionMessage) => {
+      const isChatEvent = message.type === 'CHAT_DELTA'
+        || message.type === 'CHAT_ERROR'
+        || message.type === 'CHAT_CANCELLED';
+      if (isChatEvent && (!message.requestId || message.requestId !== activeRequestIdRef.current)) {
+        return;
+      }
+
       switch (message.type) {
         case 'CHAT_DELTA':
           handleChatDelta(message.payload as ChatDelta);
           break;
         case 'CHAT_ERROR':
-          handleChatError(message.payload as { error: string; requestId?: string });
+          handleChatError({
+            ...(message.payload as { error: string }),
+            requestId: message.requestId as string,
+          });
           break;
         case 'CHAT_CANCELLED':
-          handleChatCancelled(message.payload as { requestId?: string });
+          handleChatCancelled({ requestId: message.requestId as string });
           break;
         case 'OPEN_SIDE_PANEL_WITH_SELECTION':
           handleSelectionAction(message.payload as { selection: string; context: TabContext });
@@ -515,6 +566,7 @@ export const SidePanel: React.FC = () => {
           const nextDefaultProvider = snapshot.settings?.defaultProvider as ProviderId | undefined;
           const nextDefaultModels = snapshot.settings?.defaultModels || {};
 
+          setExtensionSettings(snapshot.settings || null);
           applyAidTheme(resolveAidTheme(snapshot.settings?.theme));
           applyAidAccent(resolveAccentColor(snapshot.settings));
           setAuthMap(nextAuthMap);
@@ -550,10 +602,6 @@ export const SidePanel: React.FC = () => {
 
   const updateCurrentContext = useCallback(async () => {
     try {
-      if (currentContext.length === 0) {
-        setContextStatus(defaultContextStatus);
-      }
-
       const result = await MessageHandler.getActiveTabContextResult();
       const context = result.context;
       setContextDiagnostics(result.diagnostics);
@@ -569,9 +617,9 @@ export const SidePanel: React.FC = () => {
 
       setCurrentContext([]);
       setContextStatus({
-        state: 'empty',
-        message: 'Page context unavailable',
-        detail: formatContextDiagnostics(result.diagnostics),
+        state: result.error ? 'error' : 'empty',
+        message: result.error ? 'Page context failed' : 'Page context unavailable',
+        detail: result.error || formatContextDiagnostics(result.diagnostics),
       });
     } catch (error) {
       console.warn('Failed to get current context:', error);
@@ -583,7 +631,41 @@ export const SidePanel: React.FC = () => {
       });
       setContextDiagnostics(undefined);
     }
-  }, [currentContext.length]);
+  }, []);
+
+  const acceptDataDisclosure = async () => {
+    if (!extensionSettings) return;
+    setIsAcceptingDisclosure(true);
+
+    try {
+      const nextSettings = {
+        ...extensionSettings,
+        dataDisclosureVersion: DATA_DISCLOSURE_VERSION,
+      };
+      const response = await browser.runtime.sendMessage({
+        type: 'UPDATE_SETTINGS',
+        payload: { settings: { dataDisclosureVersion: DATA_DISCLOSURE_VERSION } },
+      });
+      if (response?.error) throw new Error(response.error);
+
+      setExtensionSettings(nextSettings);
+      await updateCurrentContext();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to save disclosure choice.');
+    } finally {
+      setIsAcceptingDisclosure(false);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      !isLoading &&
+      hasAcceptedDataDisclosure(extensionSettings || undefined) &&
+      contextStatus.message === 'Data disclosure required'
+    ) {
+      void updateCurrentContext();
+    }
+  }, [contextStatus.message, extensionSettings, isLoading, updateCurrentContext]);
 
   const loadContextForTab = async (tabId: number) => {
     try {
@@ -607,9 +689,9 @@ export const SidePanel: React.FC = () => {
 
       setCurrentContext([]);
       setContextStatus({
-        state: 'empty',
-        message: 'Selected tab unavailable',
-        detail: formatContextDiagnostics(result.diagnostics),
+        state: result.error ? 'error' : 'empty',
+        message: result.error ? 'Selected tab failed' : 'Selected tab unavailable',
+        detail: result.error || formatContextDiagnostics(result.diagnostics),
       });
     } catch (error) {
       console.warn('Failed to load selected tab context:', error);
@@ -629,21 +711,15 @@ export const SidePanel: React.FC = () => {
         message: 'Requesting site access',
       });
 
-      let diagnostics = contextDiagnostics;
-
-      if (!diagnostics) {
-        const result = await MessageHandler.getActiveTabContextResult();
-        diagnostics = result.diagnostics;
-        setContextDiagnostics(result.diagnostics);
-      }
-
-      const origin = getContextPermissionOrigin(diagnostics);
+      const origin = getContextPermissionOrigin(contextDiagnostics);
       if (!origin) {
         setCurrentContext([]);
         setContextStatus({
           state: 'empty',
           message: 'No grantable page found',
-          detail: 'Open an http or https tab, then try again.',
+          detail: contextDiagnostics
+            ? 'Open an http or https tab, then try again.'
+            : 'Refresh page context, then click Grant site access again.',
         });
         return;
       }
@@ -673,12 +749,38 @@ export const SidePanel: React.FC = () => {
   };
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      void updateCurrentContext();
-    }, 1000);
+    const refresh = () => {
+      if (hasAcceptedDataDisclosure(extensionSettings || undefined) && !agentRunRef.current) {
+        setCurrentContext([]);
+        setContextDiagnostics(undefined);
+        void updateCurrentContext();
+      }
+    };
+    const handleUpdated = (
+      _tabId: number,
+      changeInfo: browser.Tabs.OnUpdatedChangeInfoType,
+      tab: browser.Tabs.Tab
+    ) => {
+      if (tab.active && (changeInfo.status === 'complete' || Boolean(changeInfo.url))) {
+        refresh();
+      }
+    };
+    const handleWindowFocus = (windowId: number) => {
+      if (windowId !== browser.windows.WINDOW_ID_NONE) {
+        refresh();
+      }
+    };
 
-    return () => clearInterval(interval);
-  }, [updateCurrentContext]);
+    browser.tabs.onActivated.addListener(refresh);
+    browser.tabs.onUpdated.addListener(handleUpdated);
+    browser.windows.onFocusChanged.addListener(handleWindowFocus);
+
+    return () => {
+      browser.tabs.onActivated.removeListener(refresh);
+      browser.tabs.onUpdated.removeListener(handleUpdated);
+      browser.windows.onFocusChanged.removeListener(handleWindowFocus);
+    };
+  }, [updateCurrentContext, extensionSettings]);
 
   const hasSelectedText = () => {
     return currentContext.length > 0 &&
@@ -787,11 +889,14 @@ export const SidePanel: React.FC = () => {
   };
 
   const handleChatError = (payload: { error: string; requestId?: string }) => {
+    if (payload.requestId && payload.requestId !== activeRequestIdRef.current) {
+      return;
+    }
+
     const friendlyError = getFriendlyProviderError(payload.error);
 
-    setActiveRequestId((current) => (
-      !payload.requestId || current === payload.requestId ? undefined : current
-    ));
+    activeRequestIdRef.current = undefined;
+    setActiveRequestId(undefined);
     setChatState((prev) => {
       const messages = [...prev.messages];
       const lastMessage = messages[messages.length - 1] as MessageWithStatus;
@@ -818,9 +923,12 @@ export const SidePanel: React.FC = () => {
   };
 
   const handleChatCancelled = (payload: { requestId?: string }) => {
-    setActiveRequestId((current) => (
-      !payload.requestId || current === payload.requestId ? undefined : current
-    ));
+    if (payload.requestId && payload.requestId !== activeRequestIdRef.current) {
+      return;
+    }
+
+    activeRequestIdRef.current = undefined;
+    setActiveRequestId(undefined);
     setChatState((prev) => {
       const nextState: ChatState = {
         ...prev,
@@ -902,9 +1010,9 @@ export const SidePanel: React.FC = () => {
 
       setCurrentContext([]);
       setContextStatus({
-        state: 'empty',
-        message: 'Page context unavailable',
-        detail: formatContextDiagnostics(result.diagnostics),
+        state: result.error ? 'error' : 'empty',
+        message: result.error ? 'Page context failed' : 'Page context unavailable',
+        detail: result.error || formatContextDiagnostics(result.diagnostics),
       });
       return [];
     } catch (error) {
@@ -949,7 +1057,7 @@ export const SidePanel: React.FC = () => {
       ? options.refreshContext ? await refreshContextForSend() : context
       : [];
 
-    const requestId = `chat_${Date.now()}`;
+    const requestId = `chat_${crypto.randomUUID()}`;
     const request: ChatRequest = {
       id: requestId,
       providerId: currentProvider,
@@ -959,6 +1067,7 @@ export const SidePanel: React.FC = () => {
     };
 
     try {
+      activeRequestIdRef.current = requestId;
       setActiveRequestId(requestId);
       if (!browser.runtime?.id) {
         throw new Error('Extension context invalidated - please reload the extension');
@@ -1006,9 +1115,15 @@ export const SidePanel: React.FC = () => {
         return { ...prev, messages };
       });
     } catch (error) {
-      handleChatError({ error: error instanceof Error ? error.message : 'Failed to send chat request' });
+      handleChatError({
+        error: error instanceof Error ? error.message : 'Failed to send chat request',
+        requestId,
+      });
     } finally {
-      setActiveRequestId((current) => (current === requestId ? undefined : current));
+      if (activeRequestIdRef.current === requestId) {
+        activeRequestIdRef.current = undefined;
+        setActiveRequestId(undefined);
+      }
     }
   };
 
@@ -1084,8 +1199,149 @@ export const SidePanel: React.FC = () => {
     }
   }, [chatState.messages, currentConversationId, autoSaveConversation]);
 
+  const requestAgentApproval = (assessment: AgentActionAssessment): Promise<boolean> => {
+    agentApprovalResolverRef.current?.(false);
+    setPendingAgentApproval(assessment);
+
+    return new Promise((resolve) => {
+      agentApprovalResolverRef.current = resolve;
+    });
+  };
+
+  const resolveAgentApproval = (approved: boolean) => {
+    const resolve = agentApprovalResolverRef.current;
+    agentApprovalResolverRef.current = null;
+    setPendingAgentApproval(null);
+    resolve?.(approved);
+  };
+
+  const handleAgentTask = async () => {
+    const task = inputValue.trim();
+    if (!task || chatState.isLoading || !isAgentProviderId(currentProvider)) {
+      return;
+    }
+
+    const auth = authMap[currentProvider] || { kind: 'none' as const };
+    let userMessageQueued = false;
+
+    try {
+      const connection = getAgentProviderConnection(currentProvider, auth);
+      const pagePermissionTarget = getContextPermissionOrigin(contextDiagnostics)
+        || currentContext[0]?.url;
+      if (!pagePermissionTarget) {
+        throw new Error('Refresh page context before starting Agent mode.');
+      }
+
+      const access = await ensureOriginPermissions([
+        pagePermissionTarget,
+        connection.baseURL,
+      ]);
+      if (!access) {
+        throw new Error('Agent mode needs access to the active page and selected provider.');
+      }
+
+      const contextResult = await MessageHandler.getActiveTabContextResult();
+      if (contextResult.error) {
+        throw new Error(contextResult.error);
+      }
+      const tabId = contextResult.diagnostics?.selectedTabIds[0];
+      if (tabId === undefined) {
+        throw new Error('Open an http or https page before starting Agent mode.');
+      }
+
+      const tab = await browser.tabs.get(tabId);
+      if (!tab.url || !/^https?:\/\//i.test(tab.url)) {
+        throw new Error('Agent mode only works on http or https pages.');
+      }
+
+      await MessageHandler.getTabContextForTab(tabId);
+
+      const userMessage: MessageWithStatus = {
+        id: `user_${Date.now()}`,
+        role: 'user',
+        content: task,
+        timestamp: Date.now(),
+        status: 'sent',
+      };
+
+      setInputValue('');
+      setPendingImages([]);
+      setAttachmentError(null);
+      setAgentStep(0);
+      setAgentActivity({ type: 'thinking' });
+      setChatState((previous) => {
+        const nextState: ChatState = {
+          ...previous,
+          messages: [...previous.messages, userMessage],
+          isLoading: true,
+        };
+        delete nextState.error;
+        return nextState;
+      });
+      userMessageQueued = true;
+
+      const run = new AidAgentRun({
+        tabId,
+        initialUrl: tab.url,
+        providerId: currentProvider,
+        auth,
+        model: currentModel,
+        onActivity: setAgentActivity,
+        onStep: setAgentStep,
+        onApproval: requestAgentApproval,
+      });
+      agentRunRef.current = run;
+      setActiveAgentRunId(run.id);
+
+      const result = await run.execute(task);
+      if (agentRunRef.current !== run) {
+        return;
+      }
+
+      const assistantMessage: ChatMessage = {
+        id: `assistant_${Date.now()}`,
+        role: 'assistant',
+        content: result.data || (result.success
+          ? 'The task is complete.'
+          : 'The agent could not complete the task.'),
+        timestamp: Date.now(),
+      };
+      setChatState((previous) => ({
+        ...previous,
+        messages: [...previous.messages, assistantMessage],
+        isLoading: false,
+      }));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Agent mode failed.';
+      if (userMessageQueued) {
+        handleChatError({ error: errorMessage });
+      } else {
+        setChatState((previous) => ({
+          ...previous,
+          isLoading: false,
+          error: getFriendlyProviderError(errorMessage),
+        }));
+      }
+    } finally {
+      agentApprovalResolverRef.current?.(false);
+      agentApprovalResolverRef.current = null;
+      setPendingAgentApproval(null);
+      setAgentActivity(null);
+      setActiveAgentRunId(undefined);
+      agentRunRef.current = null;
+    }
+  };
+
   const handleNewChat = useCallback(async () => {
     try {
+      agentApprovalResolverRef.current?.(false);
+      agentApprovalResolverRef.current = null;
+      await agentRunRef.current?.stop();
+      agentRunRef.current = null;
+      setActiveAgentRunId(undefined);
+      setPendingAgentApproval(null);
+      setAgentActivity(null);
+
       if (chatState.messages.length > 0 && currentConversationId) {
         await autoSaveConversation();
         await ChatHistoryManager.updateConversation(currentConversationId, {
@@ -1142,6 +1398,11 @@ export const SidePanel: React.FC = () => {
   };
 
   const handleSendMessage = async () => {
+    if (panelMode === 'agent') {
+      await handleAgentTask();
+      return;
+    }
+
     const content = inputValue.trim();
     if ((!content && pendingImages.length === 0) || chatState.isLoading) return;
     if (pendingImages.length > 0 && !providerSupportsImageInput(currentProvider, currentModel)) {
@@ -1167,6 +1428,17 @@ export const SidePanel: React.FC = () => {
   };
 
   const handleStopGenerating = async () => {
+    const agentRun = agentRunRef.current;
+    if (agentRun) {
+      agentRunRef.current = null;
+      resolveAgentApproval(false);
+      await agentRun.stop();
+      setActiveAgentRunId(undefined);
+      setAgentActivity(null);
+      setChatState((previous) => ({ ...previous, isLoading: false }));
+      return;
+    }
+
     const requestId = activeRequestId;
     if (!requestId) {
       return;
@@ -1219,7 +1491,7 @@ export const SidePanel: React.FC = () => {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage();
+      void handleSendMessage();
     }
   };
 
@@ -1306,6 +1578,18 @@ export const SidePanel: React.FC = () => {
     void browser.runtime.openOptionsPage();
   };
 
+  const handlePanelModeChange = (mode: PanelMode) => {
+    if (chatState.isLoading || mode === panelMode) {
+      return;
+    }
+    setPanelMode(mode);
+    if (mode === 'agent') {
+      setPendingImages([]);
+      setAttachmentError(null);
+      setShowContextInspector(false);
+    }
+  };
+
   const renderMessageStatus = (message: MessageWithStatus) => {
     if (!message.status || message.role !== 'user') return null;
 
@@ -1338,13 +1622,25 @@ export const SidePanel: React.FC = () => {
     : currentPage?.title
       ? 'Page context ready'
       : 'No page context';
-  const canRegenerate = !chatState.isLoading && chatState.messages.some((message) => message.role === 'user');
-  const canAttachImages = providerSupportsImageInput(currentProvider, currentModel);
+  const agentProviderSupported = isAgentProviderId(currentProvider);
+  const canRegenerate = panelMode === 'chat' && !chatState.isLoading && chatState.messages.some((message) => message.role === 'user');
+  const canAttachImages = panelMode === 'chat' && providerSupportsImageInput(currentProvider, currentModel);
   const canSendMessage = Boolean(
-    (inputValue.trim() || (pendingImages.length > 0 && canAttachImages)) &&
+    (panelMode === 'agent'
+      ? inputValue.trim() && agentProviderSupported
+      : inputValue.trim() || (pendingImages.length > 0 && canAttachImages)) &&
     hasAuth &&
     currentModel
   );
+  const inputPlaceholder = !hasAuth
+    ? 'Connect a provider first'
+    : !currentModel
+      ? 'Select a model first'
+      : panelMode === 'agent'
+        ? agentProviderSupported
+          ? 'Tell Aid what to do on this page...'
+          : 'Agent mode supports OpenAI-compatible providers'
+        : 'Ask about this page...';
   const providerModelPresets = getProviderModelPresets(currentProvider);
   const suggestedModel = providerModelPresets[0];
   const shouldShowImageModelWarning = Boolean(
@@ -1371,6 +1667,26 @@ export const SidePanel: React.FC = () => {
             </button>
             <button className="ghost-action" onClick={() => openPanel('provider')}>
               Change provider
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (panelMode === 'agent' && !agentProviderSupported) {
+      return (
+        <div className="chat-empty">
+          <div className="empty-mark">
+            <MousePointerClick size={24} />
+          </div>
+          <h2>Choose an agent provider</h2>
+          <p>Agent mode supports OpenAI, OpenRouter, Ollama, and LM Studio models with tool calling.</p>
+          <div className="empty-actions">
+            <button className="primary-action" onClick={() => openPanel('provider')}>
+              Change provider
+            </button>
+            <button className="ghost-action" onClick={() => handlePanelModeChange('chat')}>
+              Return to chat
             </button>
           </div>
         </div>
@@ -1419,6 +1735,26 @@ export const SidePanel: React.FC = () => {
             </button>
             <button className="ghost-action" onClick={() => inputRef.current?.focus()}>
               Ask anyway
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (panelMode === 'agent') {
+      return (
+        <div className="chat-empty">
+          <div className="empty-mark">
+            <MousePointerClick size={24} />
+          </div>
+          <h2>Operate this page</h2>
+          <p>Aid can inspect, scroll, type, and click. Links and sensitive fields are blocked; navigation or switching tabs stops the run.</p>
+          <div className="prompt-chips">
+            <button onClick={() => setInputValue('Open the filters and select the most relevant option')}>
+              Adjust a filter
+            </button>
+            <button onClick={() => setInputValue('Fill the visible form fields using the information I provide')}>
+              Fill a form
             </button>
           </div>
         </div>
@@ -1732,6 +2068,14 @@ export const SidePanel: React.FC = () => {
     );
   }
 
+  if (!hasAcceptedDataDisclosure(extensionSettings || undefined)) {
+    return (
+      <div className="disclosure-screen">
+        <DataDisclosure onAccept={() => void acceptDataDisclosure()} isSaving={isAcceptingDisclosure} />
+      </div>
+    );
+  }
+
   return (
     <div className="aid-shell">
       <div className="ambient-layer" aria-hidden="true" />
@@ -1829,7 +2173,7 @@ export const SidePanel: React.FC = () => {
                   </article>
                 );
               })}
-              {chatState.isLoading && (
+              {chatState.isLoading && panelMode === 'chat' && (
                 <article className="message assistant-message">
                   <div className="message-meta">
                     <span>Aid</span>
@@ -1841,6 +2185,15 @@ export const SidePanel: React.FC = () => {
                   </div>
                 </article>
               )}
+              {activeAgentRunId && (
+                <article className="agent-run-card" role="status" aria-live="polite">
+                  <span className="agent-run-icon"><MousePointerClick size={16} /></span>
+                  <div>
+                    <strong>{describeAgentActivity(agentActivity)}</strong>
+                    <small>Step {Math.max(agentStep, 1)} of 12 · current page only</small>
+                  </div>
+                </article>
+              )}
               <div ref={messagesEndRef} />
             </>
           )}
@@ -1848,35 +2201,67 @@ export const SidePanel: React.FC = () => {
       </main>
 
       <footer className="composer-zone">
-        <div className="composer-tools">
-          <button onClick={() => openPanel('tools')}>
-            <Wand2 size={14} />
-            Tools
+        <div className="mode-switch" aria-label="Aid mode">
+          <button
+            type="button"
+            className={panelMode === 'chat' ? 'active' : ''}
+            onClick={() => handlePanelModeChange('chat')}
+            disabled={chatState.isLoading}
+          >
+            <Bot size={13} />
+            Chat
           </button>
           <button
-            onClick={() => openPanel('context')}
-            className={`context-tool ${selectedText ? 'is-attached' : ''}`}
+            type="button"
+            className={panelMode === 'agent' ? 'active' : ''}
+            onClick={() => handlePanelModeChange('agent')}
+            disabled={chatState.isLoading}
           >
-            <PanelRightOpen size={14} />
-            {contextLabel}
+            <MousePointerClick size={13} />
+            Agent <span>Beta</span>
           </button>
-          {canRegenerate && (
-            <button onClick={() => void handleRegenerateLast()}>
-              <RefreshCw size={14} />
-              Regenerate
-            </button>
-          )}
         </div>
-        <ContextInspector
-          contexts={currentContext}
-          isAttached={contextAttachEnabled}
-          isOpen={showContextInspector}
-          isRefreshing={isRefreshingContext}
-          disabled={chatState.isLoading}
-          onRefresh={() => void handleRefreshContextInspector()}
-          onToggleAttached={setContextAttachEnabled}
-          onToggleOpen={() => setShowContextInspector((current) => !current)}
-        />
+        {panelMode === 'chat' ? (
+          <>
+            <div className="composer-tools">
+              <button onClick={() => openPanel('tools')}>
+                <Wand2 size={14} />
+                Tools
+              </button>
+              <button
+                onClick={() => openPanel('context')}
+                className={`context-tool ${selectedText ? 'is-attached' : ''}`}
+              >
+                <PanelRightOpen size={14} />
+                {contextLabel}
+              </button>
+              {canRegenerate && (
+                <button onClick={() => void handleRegenerateLast()}>
+                  <RefreshCw size={14} />
+                  Regenerate
+                </button>
+              )}
+            </div>
+            <ContextInspector
+              contexts={currentContext}
+              isAttached={contextAttachEnabled}
+              isOpen={showContextInspector}
+              isRefreshing={isRefreshingContext}
+              disabled={chatState.isLoading}
+              emptyMessage={contextStatus.detail || contextStatus.message}
+              onRefresh={() => void handleRefreshContextInspector()}
+              onToggleAttached={setContextAttachEnabled}
+              onToggleOpen={() => setShowContextInspector((current) => !current)}
+            />
+          </>
+        ) : (
+          <div className="agent-guidance">
+            <ShieldCheck size={14} />
+            <span>{agentProviderSupported
+              ? 'Links and sensitive fields are blocked; consequential actions ask first. Navigation or tab switching stops the run.'
+              : 'Use OpenAI, OpenRouter, Ollama, or LM Studio for Agent mode.'}</span>
+          </div>
+        )}
         {pendingImages.length > 0 && (
           <div className="attachment-strip">
             {pendingImages.map((image) => (
@@ -1908,6 +2293,23 @@ export const SidePanel: React.FC = () => {
             </button>
           </div>
         )}
+        {pendingAgentApproval && (
+          <div className="agent-approval" role="alertdialog" aria-label="Approve agent action">
+            <div>
+              <strong>Approve {pendingAgentApproval.action}</strong>
+              <span>{pendingAgentApproval.label}</span>
+              <small>{pendingAgentApproval.reason}</small>
+            </div>
+            <div className="agent-approval-actions">
+              <button type="button" className="ghost-action" onClick={() => resolveAgentApproval(false)}>
+                Deny
+              </button>
+              <button type="button" className="primary-action" onClick={() => resolveAgentApproval(true)}>
+                Approve once
+              </button>
+            </div>
+          </div>
+        )}
         <div className="composer">
           <button className="composer-icon" onClick={() => openPanel('context')} aria-label="Open context">
             <Menu size={18} />
@@ -1915,7 +2317,7 @@ export const SidePanel: React.FC = () => {
           <button
             className={`composer-icon ${pendingImages.length > 0 ? 'is-attached' : ''}`}
             onClick={() => imageInputRef.current?.click()}
-            disabled={chatState.isLoading || !hasAuth || !currentModel || !canAttachImages}
+            disabled={panelMode === 'agent' || chatState.isLoading || !hasAuth || !currentModel || !canAttachImages}
             aria-label="Attach image"
             title={canAttachImages ? 'Attach image' : 'Select a vision-capable model to attach images'}
           >
@@ -1933,19 +2335,19 @@ export const SidePanel: React.FC = () => {
           <textarea
             ref={inputRef}
             className="chat-input"
-            placeholder={hasAuth ? currentModel ? 'Ask about this page...' : 'Select a model first' : 'Connect a provider first'}
+            placeholder={inputPlaceholder}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={chatState.isLoading || !hasAuth || !currentModel}
+            disabled={chatState.isLoading || !hasAuth || !currentModel || (panelMode === 'agent' && !agentProviderSupported)}
             rows={1}
           />
           <button
             className={`send-button ${chatState.isLoading ? 'stop-button' : ''}`}
             onClick={chatState.isLoading ? handleStopGenerating : handleSendMessage}
-            disabled={chatState.isLoading ? !activeRequestId : !canSendMessage}
-            title={chatState.isLoading ? 'Stop response' : 'Send message'}
-            aria-label={chatState.isLoading ? 'Stop response' : 'Send message'}
+            disabled={chatState.isLoading ? !activeRequestId && !activeAgentRunId : !canSendMessage}
+            title={chatState.isLoading ? panelMode === 'agent' ? 'Stop agent task' : 'Stop response' : panelMode === 'agent' ? 'Start agent task' : 'Send message'}
+            aria-label={chatState.isLoading ? panelMode === 'agent' ? 'Stop agent task' : 'Stop response' : panelMode === 'agent' ? 'Start agent task' : 'Send message'}
           >
             {chatState.isLoading ? <X size={18} /> : <SendHorizontal size={18} />}
           </button>

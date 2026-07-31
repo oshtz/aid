@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildSavedConversation } from '@/sidepanel/conversation';
 import type { ChatConversation, ChatMessage } from '@/shared/types';
@@ -71,5 +73,35 @@ describe('buildSavedConversation', () => {
     expect(saved.metadata.model).toBe('gpt-4.1');
     expect(saved.metadata.messageCount).toBe(2);
     expect(saved.metadata.tags).toEqual(['release', 'pinned']);
+  });
+});
+
+describe('SidePanel browser lifecycle', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/sidepanel/components/SidePanel.tsx'), 'utf8');
+
+  it('keeps Firefox permission requests inside the original user gesture', () => {
+    const grantHandler = source.slice(
+      source.indexOf('const requestPageAccessAndRefresh'),
+      source.indexOf('const hasSelectedText')
+    );
+    const agentHandler = source.slice(
+      source.indexOf('const handleAgentTask'),
+      source.indexOf('const handleSendMessage')
+    );
+
+    const beforeGrantRequest = grantHandler.slice(0, grantHandler.indexOf('ensureOriginPermission('));
+    expect(beforeGrantRequest.match(/await /g)).toHaveLength(1);
+    expect(beforeGrantRequest.trimEnd().endsWith('await')).toBe(true);
+    expect(grantHandler).not.toContain('getActiveTabContextResult');
+    expect(agentHandler.indexOf('ensureOriginPermissions(')).toBeLessThan(
+      agentHandler.indexOf('MessageHandler.getActiveTabContextResult(')
+    );
+    expect(agentHandler.match(/ensureOriginPermissions\(/g)).toHaveLength(1);
+  });
+
+  it('filters broadcast chat events and refreshes context from browser events instead of polling', () => {
+    expect(source).toContain('message.requestId !== activeRequestIdRef.current');
+    expect(source).toContain('browser.tabs.onActivated.addListener');
+    expect(source).not.toContain('setInterval(');
   });
 });
