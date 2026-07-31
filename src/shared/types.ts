@@ -43,6 +43,7 @@ export interface TabContext {
   title: string;
   abstract: string;
   selection?: string;
+  source?: 'live' | 'pinned';
 }
 
 export interface ContextDiagnosticsTab {
@@ -103,6 +104,12 @@ export interface ExtensionSettings {
   theme: 'light' | 'dark' | 'auto';
   accentColor: string;
   dataDisclosureVersion?: number;
+}
+
+export interface PinnedPageContext {
+  id: string;
+  capturedAt: number;
+  context: TabContext;
 }
 
 export type ProviderId = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'ollama' | 'lmstudio';
@@ -190,6 +197,7 @@ export interface ConversationMetadata {
   provider: string;
   model: string;
   context: TabContext[];
+  pinnedContexts?: PinnedPageContext[];
   messageCount: number;
   tokenUsage: TokenUsage;
   lastActivity: number;

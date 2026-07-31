@@ -8,8 +8,8 @@ Aid is a browser extension that adds an AI chat side panel to Chrome and Firefox
 
 Aid may handle the following data when you use the extension:
 
-- Chat messages, Agent tasks, selected text, image attachments, and current-page context sent to an AI provider or local endpoint.
-- Browser tab metadata, such as the current page title and URL, when page context is attached.
+- Chat messages, Agent tasks, selected text, image attachments, live current-page context, and pinned page snapshots sent to an AI provider or local endpoint.
+- Browser tab metadata, such as current or pinned page titles and URLs, when page context is attached.
 - Extension settings, conversation history, and provider configuration.
 - AI provider API keys that you enter in the extension.
 
@@ -25,7 +25,7 @@ Aid does not use your data for advertising, profiling, analytics, or resale.
 
 ## Storage
 
-Aid stores settings and conversation history locally in your browser. API keys use session-only browser extension storage by default. If you choose **Remember on this browser profile**, Aid stores credentials in extension-local browser storage. This option does not protect credentials from someone with access to your browser profile or device.
+Aid stores settings and conversation history, including pinned page snapshots, locally in your browser. API keys use session-only browser extension storage by default. If you choose **Remember on this browser profile**, Aid stores credentials in extension-local browser storage. This option does not protect credentials from someone with access to your browser profile or device.
 
 ## Third-Party Providers
 
@@ -33,7 +33,7 @@ When you send a message through a cloud provider, your browser sends the message
 
 ## Page Context
 
-Aid reads page context only after you accept the in-extension disclosure and use features that attach context from the active page, start an opt-in Agent task, or grant optional site access. During an Agent task, Aid sends redacted observations of the starting tab to the selected provider so the model can choose actions. Agent mode blocks links and sensitive controls, strips serialized field values, asks before consequential actions, and stops when the page navigates or the active tab changes. Redaction is best effort, so avoid Agent mode on pages containing sensitive information you do not want processed by the selected provider.
+Aid reads page context only after you accept the in-extension disclosure and use features that attach context from the active page, start an opt-in Agent task, or grant optional site access. You can explicitly pin up to three redacted page snapshots to a conversation; normal chat sends the live page first and then those snapshots while context attachment is enabled. Quick actions and Agent mode use only the live current page. During an Agent task, Aid sends redacted observations of the starting tab to the selected provider so the model can choose actions. Agent mode blocks links and sensitive controls, strips serialized field values, asks before consequential actions, and stops when the page navigates or the active tab changes. Redaction is best effort, so avoid attaching pages containing sensitive information you do not want processed by the selected provider.
 
 ## Data Sharing
 

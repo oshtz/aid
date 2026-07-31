@@ -60,6 +60,23 @@ describe('chat context prompt helpers', () => {
     expect(estimateContextTokens([pageContext])).toBeGreaterThan(0);
   });
 
+  it('labels multiple sources live-first and divides the 8,000-token budget evenly', () => {
+    const contexts = Array.from({ length: 4 }, (_, index): TabContext => ({
+      title: `Page ${index + 1}`,
+      url: `https://example.com/${index + 1}`,
+      abstract: String(index + 1).repeat(40_000),
+    }));
+
+    const formatted = formatPageContextForPrompt(contexts);
+    const sourceBlocks = formatted.split('\n\n');
+
+    expect(formatted).toContain('[1] Page source');
+    expect(formatted).toContain('[2] Page source');
+    expect(sourceBlocks).toHaveLength(4);
+    expect(new Set(sourceBlocks.map((block) => block.length)).size).toBe(1);
+    expect(estimateContextTokens(contexts)).toBeLessThanOrEqual(8_000);
+  });
+
   it('merges page context into the latest user message', () => {
     const messages = [
       makeMessage('user', 'hello', 'user-1'),
@@ -74,6 +91,28 @@ describe('chat context prompt helpers', () => {
     expect(result[2]?.content).toContain('Use this current page context');
     expect(result[2]?.content).toContain('Title: HyperFrames / X');
     expect(result[2]?.content).toContain('User request:\n\nwhats on this page');
+  });
+
+  it('instructs the model to cite labeled live and pinned sources', () => {
+    const result = addPageContextToLatestUserMessage(
+      [makeMessage('user', 'Compare these pages')],
+      [pageContext, { ...pageContext, title: 'Pinned reference', url: 'https://example.com/pinned' }]
+    );
+
+    expect(result[0]?.content).toContain('live current page first when available');
+    expect(result[0]?.content).toContain('Cite relevant sources as [1], [2]');
+    expect(result[0]?.content).toContain('[2] Page source');
+  });
+
+  it('does not describe a lone pinned snapshot as the current page', () => {
+    const result = addPageContextToLatestUserMessage(
+      [makeMessage('user', 'What did I pin?')],
+      [{ ...pageContext, source: 'pinned' }]
+    );
+
+    expect(result[0]?.content).toContain('Use this pinned page snapshot');
+    expect(result[0]?.content).toContain('Pinned page snapshot\n');
+    expect(result[0]?.content).not.toContain('Use this current page context');
   });
 
   it('does not duplicate context that quick actions already embedded', () => {

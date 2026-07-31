@@ -7,6 +7,7 @@ import type {
   TokenUsage,
 } from './types';
 import { ContextCollector } from './context-collector';
+import { sanitizePageUrl } from './page-context-safety';
 
 const RECEIPT_STATUSES = new Set<AgentReceiptStatus>(['completed', 'failed', 'stopped']);
 const STEP_OUTCOMES = new Set<AgentReceiptStepOutcome>(['completed', 'failed', 'blocked', 'denied']);
@@ -49,23 +50,7 @@ export const sanitizeAgentReceiptText = (value: unknown, maximumLength: number):
     .slice(0, maximumLength);
 };
 
-export const sanitizeAgentReceiptUrl = (value: unknown): string => {
-  if (typeof value !== 'string') return '';
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
-    url.username = '';
-    url.password = '';
-    url.search = '';
-    url.hash = '';
-    const privatePath = ['/admin', '/dashboard', '/profile', '/account', '/settings', '/private', '/secure']
-      .find((path) => url.pathname.toLowerCase().startsWith(path));
-    if (privatePath) url.pathname = `${privatePath}/[private]`;
-    return url.toString().slice(0, 512);
-  } catch {
-    return '';
-  }
-};
+export const sanitizeAgentReceiptUrl = sanitizePageUrl;
 
 export const summarizeAgentTokenUsage = (history: unknown): TokenUsage => {
   const usage: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };

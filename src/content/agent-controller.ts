@@ -95,13 +95,21 @@ export class AgentPageController {
   private async getBrowserState(): Promise<AgentBrowserState> {
     markSensitiveAgentElements();
     const state = await this.getController().getBrowserState();
+    const url = ContextCollector.sanitizeUrl(state.url);
+    const title = ContextCollector.redactSensitiveText(state.title).slice(0, 300) || 'Untitled Page';
+    const header = [
+      `Current Page: [${title}](${url || 'Unavailable URL'})`,
+      ...state.header.split('\n').slice(1),
+    ].join('\n');
     this.lastPageContent = sanitizeAgentPageContent(state.content);
 
     return {
       ...state,
-      url: ContextCollector.sanitizeUrl(state.url),
+      url,
+      title,
+      header,
       content: this.lastPageContent,
-      documentUrl: this.initialUrl,
+      documentUrl: ContextCollector.sanitizeUrl(this.initialUrl),
     };
   }
 

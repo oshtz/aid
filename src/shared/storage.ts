@@ -10,6 +10,7 @@ import type {
   ChatRequest
 } from './types';
 import { sanitizeAgentReceipts } from './agent-receipts';
+import { sanitizePinnedContexts } from './pinned-context';
 import { DEFAULT_ACCENT_COLOR, normalizeAccentColor } from './accent';
 
 interface LegacyTabChatHistory {
@@ -284,11 +285,17 @@ export class ChatHistoryManager {
     const store = transaction.objectStore(IndexedDBManager.CONVERSATIONS_STORE);
 
     const agentReceipts = sanitizeAgentReceipts(conversation.agentReceipts);
+    const pinnedContexts = sanitizePinnedContexts(conversation.metadata.pinnedContexts);
     const safeConversation: ChatConversation = {
       ...conversation,
       ...(agentReceipts.length > 0 ? { agentReceipts } : {}),
+      metadata: {
+        ...conversation.metadata,
+        ...(pinnedContexts.length > 0 ? { pinnedContexts } : {}),
+      },
     };
     if (agentReceipts.length === 0) delete safeConversation.agentReceipts;
+    if (pinnedContexts.length === 0) delete safeConversation.metadata.pinnedContexts;
 
     // Update timestamps
     const now = Date.now();

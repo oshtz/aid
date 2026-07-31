@@ -1,4 +1,4 @@
-# Aid 0.2.0 Store Submission Preparation
+# Aid Store Submission Preparation
 
 This file prepares future store work. It does not record a submission, approval, or live dashboard change.
 
@@ -8,14 +8,14 @@ Use the following disclosures for the next submission:
 
 - Authentication information: provider API keys or tokens entered by the user.
 - Personal communications: chat messages, Agent tasks, selected text, and image attachments submitted by the user.
-- Browsing activity: the active page URL and title when page context is enabled.
-- Website content: readable text, visible UI state, forms, tables, lists, media labels, same-origin frame content, and open shadow-DOM content attached by the user.
+- Browsing activity: current and explicitly pinned page URLs and titles when page context is enabled.
+- Website content: readable text, visible UI state, forms, tables, lists, media labels, same-origin frame content, open shadow-DOM content, and pinned page snapshots attached by the user.
 
 Purpose: provide Aid's user-facing AI chat, page-context, provider setup, and opt-in current-page Agent features.
 
 Data handling copy:
 
-> Aid processes page content, browsing activity, user messages, attachments, Agent tasks, and provider authentication information only when needed for features the user invokes. Requests go directly from the browser to the AI provider selected by the user, or to an HTTP loopback endpoint for Ollama or LM Studio. Aid operates no intermediary server, does not sell data, does not use data for advertising or credit decisions, and does not use data to train models. Provider terms apply. Session-only credential storage is the default.
+> Aid processes live or pinned page content, browsing activity, user messages, attachments, Agent tasks, and provider authentication information only when needed for features the user invokes. Requests go directly from the browser to the AI provider selected by the user, or to an HTTP loopback endpoint for Ollama or LM Studio. Aid operates no intermediary server, does not sell data, does not use data for advertising or credit decisions, and does not use data to train models. Provider terms apply. Session-only credential storage is the default.
 
 Limited Use copy:
 
@@ -31,7 +31,7 @@ Short description:
 
 Privacy summary:
 
-> Aid is local-first and bring-your-own-provider. It has no analytics or developer-operated backend. You choose when page context is attached and which provider receives it. API keys are session-only by default.
+> Aid is local-first and bring-your-own-provider. It has no analytics or developer-operated backend. You choose when live or pinned page context is attached and which provider receives it. API keys are session-only by default.
 
 Agent Beta note:
 
@@ -46,7 +46,7 @@ Agent Beta note:
 - [ ] Confirm the public privacy-policy URL contains the same wording before submission.
 - [ ] Upload the Chrome ZIP and complete Chrome review questions.
 - [ ] Upload the Firefox ZIP and confirm AMO data-collection declarations match the manifest.
-- [ ] Install the packaged Chrome build and prove disclosure, provider setup, context, chat, cancellation, Agent approval, navigation stop, and upgrade from the current public version.
+- [ ] Install the packaged Chrome build and prove disclosure, provider setup, live and pinned context, pin restoration and removal, chat, cancellation, Agent approval, navigation stop, and upgrade from the current public version.
 - [ ] Manually install the packaged Firefox build in native Firefox, open the real sidebar, grant optional page access from a direct click, and prove readable page context. The automated smoke opens the sidebar code in a tab and is not evidence of this native permission flow.
 - [ ] Record store review results and public versions only after the stores report them.
 

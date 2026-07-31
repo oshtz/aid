@@ -62,6 +62,15 @@ describe('buildSavedConversation', () => {
         tokenUsage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 },
         steps: [],
       }],
+      pinnedContexts: [{
+        id: 'pin-1',
+        capturedAt: 140,
+        context: {
+          title: 'Pinned release page',
+          url: 'https://example.com/pinned',
+          abstract: 'Pinned release context.',
+        },
+      }],
       provider: 'openai',
       model: 'gpt-4.1',
       context: [{
@@ -81,6 +90,7 @@ describe('buildSavedConversation', () => {
     expect(saved.isPinned).toBe(true);
     expect(saved.messages).toHaveLength(2);
     expect(saved.agentReceipts).toHaveLength(1);
+    expect(saved.metadata.pinnedContexts).toHaveLength(1);
     expect(saved.metadata.provider).toBe('openai');
     expect(saved.metadata.model).toBe('gpt-4.1');
     expect(saved.metadata.messageCount).toBe(2);

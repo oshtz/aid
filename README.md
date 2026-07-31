@@ -1,6 +1,6 @@
 ## <img alt="Aid logo" src="./icons/icon-32.png" width="32" height="32"> Aid - AI Side Panel for Chrome and Firefox
 
-Aid is a browser extension that docks an AI chat side panel next to the current page. It can attach page context, selected text, visible UI state, forms, tables, lists, media labels, same-origin frames, open shadow DOM, and image attachments to provider requests.
+Aid is a browser extension that docks an AI chat side panel next to the current page. It can attach live page context, up to three pinned page snapshots, selected text, visible UI state, forms, tables, lists, media labels, same-origin frames, open shadow DOM, and image attachments to provider requests.
 
 <p align="center">
   <a href="https://youtu.be/Hqj6oXya_dA">
@@ -20,7 +20,7 @@ Aid is a browser extension that docks an AI chat side panel next to the current 
 - Providers: OpenAI, Anthropic Claude, Google Gemini, OpenRouter, Ollama, and LM Studio.
 - Focused first-run setup for OpenRouter or Ollama, with model discovery and in-panel reconnect.
 - Opt-in current-page Agent mode (beta) for OpenAI, OpenRouter, Ollama, and LM Studio, with inline approvals for consequential actions.
-- Current-page context with redaction for common secrets, tokens, passwords, and private URL patterns.
+- Live current-page context plus up to three persistent pinned snapshots, with redaction for common secrets, tokens, passwords, and private URL patterns.
 - Context inspector with attach/detach control, token estimate, and redacted provider prompt preview.
 - Selected-text quick actions from the page and the side panel.
 - Image attachments for vision-capable provider models.
@@ -59,7 +59,7 @@ For a temporary local build:
 1. Open Aid from the browser toolbar or sidebar.
 2. Review and accept the in-extension data disclosure before Aid reads a page or contacts a provider.
 3. Connect OpenRouter or Ollama in the side panel, or open Options for another provider or advanced settings.
-4. Ask about the current page, review the attached context, run a selected-text quick action, or attach an image for a vision-capable model.
+4. Ask about the current page, optionally pin up to three page snapshots for multi-page chat, run a selected-text quick action, or attach an image for a vision-capable model.
 5. To operate the current page, choose **Agent Beta** in the composer. Links and sensitive fields are blocked, consequential actions require approval, and navigation or switching tabs stops the run.
 
 ## Provider Setup

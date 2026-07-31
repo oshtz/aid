@@ -2453,6 +2453,68 @@ button {
   }
 }
 
+.context-card-head,
+.context-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.context-card-badge {
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.context-card-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 10px;
+}
+
+.context-card-action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--text);
+}
+
+.context-card-action:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.pinned-contexts {
+  display: grid;
+  gap: 7px;
+}
+
+.context-section-head {
+  padding: 3px 1px 0;
+}
+
+.context-section-head strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.context-section-head small,
+.context-captured-at {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.pinned-context-card {
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+
 .disclosure-screen,
 .options-disclosure-screen {
   min-height: 100vh;

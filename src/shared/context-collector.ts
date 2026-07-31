@@ -5,6 +5,7 @@
 
 import browser from 'webextension-polyfill';
 import type { TabContext } from './types';
+import { sanitizePageUrl } from './page-context-safety';
 import {
   getFrameDocument,
   getShadowRoot,
@@ -903,39 +904,7 @@ export class ContextCollector {
    * Sanitize URL by removing query parameters and private paths
    */
   static sanitizeUrl(url: string): string {
-    try {
-      const urlObj = new URL(url);
-
-      // Remove query parameters and hash
-      urlObj.search = '';
-      urlObj.hash = '';
-
-      // Remove common private/tracking paths
-      const privatePaths = [
-        '/admin',
-        '/dashboard',
-        '/profile',
-        '/account',
-        '/settings',
-        '/private',
-        '/secure'
-      ];
-
-      const path = urlObj.pathname.toLowerCase();
-      for (const privatePath of privatePaths) {
-        if (path.startsWith(privatePath)) {
-          urlObj.pathname = `${privatePath}/[private]`;
-          break;
-        }
-      }
-
-      return urlObj.toString();
-    } catch {
-      // If URL parsing fails, return a sanitized version
-      const parts = url.split('?')[0];
-      const result = parts?.split('#')[0];
-      return result || url;
-    }
+    return sanitizePageUrl(url);
   }
 
   /**
@@ -950,7 +919,7 @@ export class ContextCollector {
     } = options;
 
     const url = sanitizeUrls ? this.sanitizeUrl(window.location.href) : window.location.href;
-    const title = document.title || 'Untitled Page';
+    const title = this.redactSensitiveText(document.title || 'Untitled Page');
     const abstract = includeFullPage
       ? this.extractPageContext(maxTokens)
       : this.extractPageAbstract();

@@ -17,6 +17,7 @@ import {
   MousePointerClick,
   PanelRightOpen,
   PenLine,
+  Pin,
   Plus,
   RefreshCw,
   SendHorizontal,
@@ -38,6 +39,13 @@ import { ensureOriginPermission, ensureOriginPermissions, toOriginPermissionPatt
 import { buildSavedConversation } from '@/sidepanel/conversation';
 import { AidAgentRun, describeAgentActivity } from '@/sidepanel/agent-runtime';
 import { sanitizeAgentReceipts } from '@/shared/agent-receipts';
+import { hasReadableTabContext } from '@/shared/chat-context';
+import {
+  MAX_PINNED_CONTEXTS,
+  sanitizePinnedContexts,
+  upsertPinnedContext,
+} from '@/shared/pinned-context';
+import { sanitizePageUrl } from '@/shared/page-context-safety';
 import {
   getAgentProviderConnection,
   isAgentProviderId,
@@ -71,6 +79,7 @@ import type {
   ChatRequest,
   ChatConversation,
   AgentRunReceipt,
+  PinnedPageContext,
   ContextLookupDiagnostics,
   ContextDiagnosticsTab,
   ExtensionMessage,
@@ -417,6 +426,7 @@ export const SidePanel: React.FC = () => {
   const [activePanel, setActivePanel] = useState<PanelName | null>(null);
   const [providerConnectionIssue, setProviderConnectionIssue] = useState<ProviderId | null>(null);
   const [agentReceipts, setAgentReceipts] = useState<AgentRunReceipt[]>([]);
+  const [pinnedContexts, setPinnedContexts] = useState<PinnedPageContext[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -1067,7 +1077,7 @@ export const SidePanel: React.FC = () => {
   const sendChatRequest = async (
     messages: ChatMessage[],
     context: TabContext[],
-    options: { refreshContext?: boolean; attachContext?: boolean } = {}
+    options: { refreshContext?: boolean; attachContext?: boolean; includePinnedContext?: boolean } = {}
   ) => {
     if (!currentModel.trim()) {
       handleChatError({ error: 'Select or enter a model before sending.' });
@@ -1096,9 +1106,15 @@ export const SidePanel: React.FC = () => {
     }
 
     const shouldAttachContext = options.attachContext ?? true;
-    const requestContext = shouldAttachContext
-      ? options.refreshContext ? await refreshContextForSend() : context
+    const liveRequestContext = shouldAttachContext
+      ? options.refreshContext ? await refreshContextForSend() : context.slice(0, 1)
       : [];
+    const requestContext = shouldAttachContext ? [
+      ...liveRequestContext,
+      ...(options.includePinnedContext
+        ? pinnedContexts.map((pin): TabContext => ({ ...pin.context, source: 'pinned' }))
+        : []),
+    ] : [];
 
     const requestId = `chat_${crypto.randomUUID()}`;
     const request: ChatRequest = {
@@ -1170,7 +1186,10 @@ export const SidePanel: React.FC = () => {
     }
   };
 
-  const autoSaveConversation = useCallback(async (receiptsOverride?: AgentRunReceipt[]) => {
+  const autoSaveConversation = useCallback(async (
+    receiptsOverride?: AgentRunReceipt[],
+    pinnedContextsOverride?: PinnedPageContext[]
+  ) => {
     if (chatState.messages.length === 0) return;
 
     try {
@@ -1183,6 +1202,7 @@ export const SidePanel: React.FC = () => {
         existingConversation,
         messages: chatState.messages,
         agentReceipts: receiptsOverride || agentReceipts,
+        pinnedContexts: pinnedContextsOverride ?? pinnedContexts,
         provider: currentProvider,
         model: currentModel,
         context: currentContext,
@@ -1196,7 +1216,7 @@ export const SidePanel: React.FC = () => {
     } catch (error) {
       console.error('Failed to auto-save conversation:', error);
     }
-  }, [chatState.messages, currentConversationId, currentProvider, currentModel, currentContext, agentReceipts]);
+  }, [chatState.messages, currentConversationId, currentProvider, currentModel, currentContext, agentReceipts, pinnedContexts]);
 
   useEffect(() => {
     if (autoSaveTimeoutRef.current) {
@@ -1229,11 +1249,13 @@ export const SidePanel: React.FC = () => {
       setCurrentConversationId(conversation.id);
       setCurrentProvider(conversation.metadata.provider as ProviderId);
       setCurrentModel(conversation.metadata.model);
-      setCurrentContext(conversation.metadata.context);
+      setCurrentContext([]);
+      setPinnedContexts(sanitizePinnedContexts(conversation.metadata.pinnedContexts));
       replaceAgentReceipts(sanitizeAgentReceipts(conversation.agentReceipts));
       setPendingImages([]);
       setAttachmentError(null);
       setShowChatHistory(false);
+      await updateCurrentContext();
 
       await ChatHistoryManager.updateConversation(conversation.id, {
         isActive: true,
@@ -1242,7 +1264,7 @@ export const SidePanel: React.FC = () => {
     } catch (error) {
       console.error('Failed to load conversation:', error);
     }
-  }, [chatState.messages, currentConversationId, autoSaveConversation, replaceAgentReceipts]);
+  }, [chatState.messages, currentConversationId, autoSaveConversation, replaceAgentReceipts, updateCurrentContext]);
 
   const requestAgentApproval = (assessment: AgentActionAssessment): Promise<boolean> => {
     agentApprovalResolverRef.current?.(false);
@@ -1413,6 +1435,7 @@ export const SidePanel: React.FC = () => {
 
       setCurrentConversationId(undefined);
       replaceAgentReceipts([]);
+      setPinnedContexts([]);
       setPendingImages([]);
       setAttachmentError(null);
       setShowChatHistory(false);
@@ -1482,6 +1505,7 @@ export const SidePanel: React.FC = () => {
     await sendChatRequest([userMessage], currentContext, {
       refreshContext: contextAttachEnabled,
       attachContext: contextAttachEnabled,
+      includePinnedContext: true,
     });
   };
 
@@ -1534,6 +1558,7 @@ export const SidePanel: React.FC = () => {
     ], currentContext, {
       refreshContext: contextAttachEnabled,
       attachContext: contextAttachEnabled,
+      includePinnedContext: true,
     });
   };
 
@@ -1637,6 +1662,26 @@ export const SidePanel: React.FC = () => {
     void browser.runtime.openOptionsPage();
   };
 
+  const handlePinCurrentPage = async () => {
+    const [context] = await refreshContextForSend();
+    if (!hasReadableTabContext(context)) return;
+    const nextPinnedContexts = upsertPinnedContext(
+      pinnedContexts,
+      context,
+      Date.now(),
+      `pin_${crypto.randomUUID()}`
+    );
+    if (nextPinnedContexts === pinnedContexts) return;
+    setPinnedContexts(nextPinnedContexts);
+    if (currentConversationId) void autoSaveConversation(undefined, nextPinnedContexts);
+  };
+
+  const handleRemovePinnedContext = (id: string) => {
+    const nextPinnedContexts = pinnedContexts.filter((pin) => pin.id !== id);
+    setPinnedContexts(nextPinnedContexts);
+    if (currentConversationId) void autoSaveConversation(undefined, nextPinnedContexts);
+  };
+
   const handleProviderConnected = async (
     providerId: Extract<ProviderId, 'openrouter' | 'ollama'>,
     auth: ProviderAuthMap[string],
@@ -1700,6 +1745,15 @@ export const SidePanel: React.FC = () => {
 
   const currentProviderConfig = ProviderFactory.getProviderConfig(currentProvider);
   const currentPage = currentContext[0];
+  const attachedContexts = [
+    ...currentContext.slice(0, 1),
+    ...pinnedContexts.map((pin): TabContext => ({ ...pin.context, source: 'pinned' })),
+  ];
+  const currentPageUrl = sanitizePageUrl(currentPage?.url);
+  const currentPagePin = currentPageUrl
+    ? pinnedContexts.find((pin) => pin.context.url === currentPageUrl)
+    : undefined;
+  const pinLimitReached = pinnedContexts.length >= MAX_PINNED_CONTEXTS && !currentPagePin;
   const normalizedModelSearch = modelSearch.trim().toLowerCase();
   const filteredModels = normalizedModelSearch
     ? availableModels.filter((model) => model.toLowerCase().includes(normalizedModelSearch))
@@ -1708,7 +1762,9 @@ export const SidePanel: React.FC = () => {
   const selectedText = currentPage?.selection?.trim();
   const contextLabel = selectedText
     ? 'Selection attached'
-    : currentPage?.title
+    : pinnedContexts.length > 0
+      ? `${attachedContexts.length} ${attachedContexts.length === 1 ? 'page' : 'pages'} attached`
+      : currentPage?.title
       ? 'Page context ready'
       : 'No page context';
   const agentProviderSupported = isAgentProviderId(currentProvider);
@@ -1738,7 +1794,7 @@ export const SidePanel: React.FC = () => {
     currentModel.trim() &&
     !isLikelyVisionModel(currentProvider, currentModel)
   );
-  const isContextUnavailable = currentContext.length === 0 &&
+  const isContextUnavailable = attachedContexts.length === 0 &&
     (contextStatus.state === 'empty' || contextStatus.state === 'error');
 
   const renderEmptyState = () => {
@@ -1991,18 +2047,29 @@ export const SidePanel: React.FC = () => {
         <aside className="floating-panel" aria-label="Current context">
           <PanelHeader title="Context" onClose={closePanel} icon={ClipboardList} />
           <div className="context-panel">
-            {currentContext.length > 0 ? (
-              currentContext.map((ctx, index) => (
-                <div key={index} className="context-card">
-                  <div className="context-card-title">{ctx.title || 'Untitled page'}</div>
-                  <div className="context-card-url">{ctx.url}</div>
-                  {ctx.selection && (
-                    <blockquote>
-                      {ctx.selection.length > 260 ? `${ctx.selection.substring(0, 260)}...` : ctx.selection}
-                    </blockquote>
-                  )}
+            {currentPage ? (
+              <div className="context-card live-context-card">
+                <div className="context-card-head">
+                  <span className="context-card-badge">Live</span>
+                  <button
+                    type="button"
+                    className="context-card-action"
+                    onClick={() => void handlePinCurrentPage()}
+                    disabled={pinLimitReached}
+                    title={pinLimitReached ? `Remove a pinned page before adding another (max ${MAX_PINNED_CONTEXTS}).` : undefined}
+                  >
+                    <Pin size={12} />
+                    {currentPagePin ? 'Repin page' : 'Pin page'}
+                  </button>
                 </div>
-              ))
+                <div className="context-card-title">{currentPage.title || 'Untitled page'}</div>
+                <div className="context-card-url">{currentPage.url}</div>
+                {currentPage.selection && (
+                  <blockquote>
+                    {currentPage.selection.length > 260 ? `${currentPage.selection.substring(0, 260)}...` : currentPage.selection}
+                  </blockquote>
+                )}
+              </div>
             ) : (
               <div className="panel-empty context-empty" aria-live="polite">
                 <Globe2 size={20} />
@@ -2041,6 +2108,32 @@ export const SidePanel: React.FC = () => {
                   <KeyRound size={14} />
                   Grant site access
                 </button>
+              </div>
+            )}
+            {pinnedContexts.length > 0 && (
+              <div className="pinned-contexts" aria-label="Pinned page snapshots">
+                <div className="context-section-head">
+                  <strong>Pinned snapshots</strong>
+                  <small>{pinnedContexts.length}/{MAX_PINNED_CONTEXTS}</small>
+                </div>
+                {pinnedContexts.map((pin) => (
+                  <div key={pin.id} className="context-card pinned-context-card">
+                    <div className="context-card-head">
+                      <span className="context-card-badge">Snapshot</span>
+                      <button
+                        type="button"
+                        className="context-card-action"
+                        onClick={() => handleRemovePinnedContext(pin.id)}
+                      >
+                        <X size={12} />
+                        Remove pin
+                      </button>
+                    </div>
+                    <div className="context-card-title">{pin.context.title || 'Untitled page'}</div>
+                    <div className="context-card-url">{pin.context.url}</div>
+                    <small className="context-captured-at">Captured {new Date(pin.capturedAt).toLocaleString()}</small>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -2404,7 +2497,7 @@ export const SidePanel: React.FC = () => {
               )}
             </div>
             <ContextInspector
-              contexts={currentContext}
+              contexts={attachedContexts}
               isAttached={contextAttachEnabled}
               isOpen={showContextInspector}
               isRefreshing={isRefreshingContext}
