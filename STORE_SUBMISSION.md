@@ -42,10 +42,13 @@ Agent Beta note:
 - [ ] Confirm package, Chrome manifest, Firefox manifest, and intended tag use the same version.
 - [ ] Run `npm run release:check` from a clean source commit.
 - [ ] Inspect both ZIP manifests and verify browser target, permissions, CSP, and version.
+- [ ] Create `artifacts/aid-source-<version>.zip` from the exact clean release commit with `git archive --format=zip --output=artifacts/aid-source-<version>.zip HEAD`.
+- [ ] Extract the source archive, run the commands in `AMO_SOURCE_README.md`, and confirm the resulting `dist/` paths and file contents match the Firefox ZIP.
+- [ ] Generate `artifacts/SHA256SUMS-<version>.txt` for the Chrome, Firefox, and source ZIPs after their final bytes are produced.
 - [ ] Update the Chrome privacy dashboard with every category and the copy above before upload.
 - [ ] Confirm the public privacy-policy URL contains the same wording before submission.
 - [ ] Upload the Chrome ZIP and complete Chrome review questions.
-- [ ] Upload the Firefox ZIP and confirm AMO data-collection declarations match the manifest.
+- [ ] Upload the Firefox ZIP and matching source ZIP, and confirm AMO data-collection declarations match the manifest.
 - [ ] Install the packaged Chrome build and prove disclosure, provider setup, live and pinned context, pin restoration and removal, chat, cancellation, Agent approval, navigation stop, and upgrade from the current public version.
 - [ ] Manually install the packaged Firefox build in native Firefox, open the real sidebar, grant optional page access from a direct click, and prove readable page context. The automated smoke opens the sidebar code in a tab and is not evidence of this native permission flow.
 - [ ] Record store review results and public versions only after the stores report them.

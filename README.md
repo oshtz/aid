@@ -117,6 +117,8 @@ Release artifacts:
 ```text
 artifacts/aid-chrome-<version>.zip
 artifacts/aid-firefox-<version>.zip
+artifacts/aid-source-<version>.zip
+artifacts/SHA256SUMS-<version>.txt
 ```
 
 Do not load a Chrome build into Firefox. The Chrome build uses `background.service_worker`; the Firefox build uses `background.scripts` and a sidebar-compatible entry point.
