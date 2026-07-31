@@ -37,6 +37,7 @@ import { AID_ACCENT_STORAGE_KEY, applyAccentColorToDocument, resolveAccentColor 
 import { ensureOriginPermission, ensureOriginPermissions, toOriginPermissionPattern } from '@/shared/permissions';
 import { buildSavedConversation } from '@/sidepanel/conversation';
 import { AidAgentRun, describeAgentActivity } from '@/sidepanel/agent-runtime';
+import { sanitizeAgentReceipts } from '@/shared/agent-receipts';
 import {
   getAgentProviderConnection,
   isAgentProviderId,
@@ -69,6 +70,7 @@ import type {
   TabContext,
   ChatRequest,
   ChatConversation,
+  AgentRunReceipt,
   ContextLookupDiagnostics,
   ContextDiagnosticsTab,
   ExtensionMessage,
@@ -414,6 +416,7 @@ export const SidePanel: React.FC = () => {
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>();
   const [activePanel, setActivePanel] = useState<PanelName | null>(null);
   const [providerConnectionIssue, setProviderConnectionIssue] = useState<ProviderId | null>(null);
+  const [agentReceipts, setAgentReceipts] = useState<AgentRunReceipt[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -423,8 +426,23 @@ export const SidePanel: React.FC = () => {
   const activeRequestIdRef = useRef<string | undefined>(undefined);
   const agentRunRef = useRef<AidAgentRun | null>(null);
   const agentApprovalResolverRef = useRef<((approved: boolean) => void) | null>(null);
+  const agentReceiptsRef = useRef<AgentRunReceipt[]>([]);
 
   const logoUrl = browser.runtime.getURL('icons/icon-32.png');
+
+  const replaceAgentReceipts = useCallback((receipts: AgentRunReceipt[]) => {
+    agentReceiptsRef.current = receipts;
+    setAgentReceipts(receipts);
+  }, []);
+
+  const recordAgentReceipt = useCallback((receipt: AgentRunReceipt): AgentRunReceipt[] => {
+    const nextReceipts = [
+      ...agentReceiptsRef.current.filter((current) => current.runId !== receipt.runId),
+      receipt,
+    ].sort((left, right) => left.startedAt - right.startedAt);
+    replaceAgentReceipts(nextReceipts);
+    return nextReceipts;
+  }, [replaceAgentReceipts]);
 
   const applyAidTheme = useCallback((nextTheme: 'light' | 'dark') => {
     localStorage.setItem(AID_THEME_STORAGE_KEY, nextTheme);
@@ -1152,7 +1170,7 @@ export const SidePanel: React.FC = () => {
     }
   };
 
-  const autoSaveConversation = useCallback(async () => {
+  const autoSaveConversation = useCallback(async (receiptsOverride?: AgentRunReceipt[]) => {
     if (chatState.messages.length === 0) return;
 
     try {
@@ -1164,6 +1182,7 @@ export const SidePanel: React.FC = () => {
         conversationId,
         existingConversation,
         messages: chatState.messages,
+        agentReceipts: receiptsOverride || agentReceipts,
         provider: currentProvider,
         model: currentModel,
         context: currentContext,
@@ -1177,7 +1196,7 @@ export const SidePanel: React.FC = () => {
     } catch (error) {
       console.error('Failed to auto-save conversation:', error);
     }
-  }, [chatState.messages, currentConversationId, currentProvider, currentModel, currentContext]);
+  }, [chatState.messages, currentConversationId, currentProvider, currentModel, currentContext, agentReceipts]);
 
   useEffect(() => {
     if (autoSaveTimeoutRef.current) {
@@ -1211,6 +1230,7 @@ export const SidePanel: React.FC = () => {
       setCurrentProvider(conversation.metadata.provider as ProviderId);
       setCurrentModel(conversation.metadata.model);
       setCurrentContext(conversation.metadata.context);
+      replaceAgentReceipts(sanitizeAgentReceipts(conversation.agentReceipts));
       setPendingImages([]);
       setAttachmentError(null);
       setShowChatHistory(false);
@@ -1222,7 +1242,7 @@ export const SidePanel: React.FC = () => {
     } catch (error) {
       console.error('Failed to load conversation:', error);
     }
-  }, [chatState.messages, currentConversationId, autoSaveConversation]);
+  }, [chatState.messages, currentConversationId, autoSaveConversation, replaceAgentReceipts]);
 
   const requestAgentApproval = (assessment: AgentActionAssessment): Promise<boolean> => {
     agentApprovalResolverRef.current?.(false);
@@ -1248,6 +1268,7 @@ export const SidePanel: React.FC = () => {
 
     const auth = authMap[currentProvider] || { kind: 'none' as const };
     let userMessageQueued = false;
+    let run: AidAgentRun | null = null;
 
     try {
       const connection = getAgentProviderConnection(currentProvider, auth);
@@ -1305,15 +1326,18 @@ export const SidePanel: React.FC = () => {
       });
       userMessageQueued = true;
 
-      const run = new AidAgentRun({
+      run = new AidAgentRun({
         tabId,
         initialUrl: tab.url,
+        initialTitle: tab.title || contextResult.context?.title || 'Untitled page',
+        taskMessageId: userMessage.id,
         providerId: currentProvider,
         auth,
         model: currentModel,
         onActivity: setAgentActivity,
         onStep: setAgentStep,
         onApproval: requestAgentApproval,
+        onInterrupted: () => resolveAgentApproval(false),
       });
       agentRunRef.current = run;
       setActiveAgentRunId(run.id);
@@ -1336,8 +1360,11 @@ export const SidePanel: React.FC = () => {
         messages: [...previous.messages, assistantMessage],
         isLoading: false,
       }));
+      recordAgentReceipt(run.createReceipt(result.success ? 'completed' : 'failed'));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Agent mode failed.';
+      if (run && agentRunRef.current !== run) return;
+      if (run) recordAgentReceipt(run.createReceipt(run.wasInterrupted ? 'stopped' : 'failed'));
       if (userMessageQueued) {
         handleChatError({ error: errorMessage });
       } else {
@@ -1353,7 +1380,7 @@ export const SidePanel: React.FC = () => {
       setPendingAgentApproval(null);
       setAgentActivity(null);
       setActiveAgentRunId(undefined);
-      agentRunRef.current = null;
+      if (!run || agentRunRef.current === run) agentRunRef.current = null;
     }
   };
 
@@ -1361,14 +1388,19 @@ export const SidePanel: React.FC = () => {
     try {
       agentApprovalResolverRef.current?.(false);
       agentApprovalResolverRef.current = null;
-      await agentRunRef.current?.stop();
+      const activeRun = agentRunRef.current;
       agentRunRef.current = null;
+      let stoppedReceipts: AgentRunReceipt[] | undefined;
+      if (activeRun) {
+        await activeRun.stop();
+        stoppedReceipts = recordAgentReceipt(activeRun.createReceipt('stopped'));
+      }
       setActiveAgentRunId(undefined);
       setPendingAgentApproval(null);
       setAgentActivity(null);
 
       if (chatState.messages.length > 0 && currentConversationId) {
-        await autoSaveConversation();
+        await autoSaveConversation(stoppedReceipts);
         await ChatHistoryManager.updateConversation(currentConversationId, {
           isActive: false,
         });
@@ -1380,6 +1412,7 @@ export const SidePanel: React.FC = () => {
       });
 
       setCurrentConversationId(undefined);
+      replaceAgentReceipts([]);
       setPendingImages([]);
       setAttachmentError(null);
       setShowChatHistory(false);
@@ -1387,7 +1420,7 @@ export const SidePanel: React.FC = () => {
     } catch (error) {
       console.error('Failed to start new chat:', error);
     }
-  }, [chatState.messages, currentConversationId, autoSaveConversation]);
+  }, [chatState.messages, currentConversationId, autoSaveConversation, recordAgentReceipt, replaceAgentReceipts]);
 
   const handleImageFilesSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
@@ -1458,6 +1491,7 @@ export const SidePanel: React.FC = () => {
       agentRunRef.current = null;
       resolveAgentApproval(false);
       await agentRun.stop();
+      recordAgentReceipt(agentRun.createReceipt('stopped'));
       setActiveAgentRunId(undefined);
       setAgentActivity(null);
       setChatState((previous) => ({ ...previous, isLoading: false }));
@@ -2245,31 +2279,59 @@ export const SidePanel: React.FC = () => {
               )}
               {chatState.messages.map((message) => {
                 const messageWithStatus = message as MessageWithStatus;
+                const messageReceipts = agentReceipts.filter((receipt) => receipt.taskMessageId === message.id);
 
                 return (
-                  <article
-                    key={message.id}
-                    className={`message ${message.role === 'user' ? 'user-message' : 'assistant-message'}`}
-                  >
-                    <div className="message-meta">
-                      <span>{message.role === 'user' ? 'You' : 'Aid'}</span>
-                      <time>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
-                    </div>
-                    <div className="message-content">
-                      <MarkdownRenderer
-                        content={message.content}
-                        isStreaming={message.role === 'assistant' && messageWithStatus.status === 'sending'}
-                      />
-                      {getMessageImageAttachments(message).length > 0 && (
-                        <div className="message-attachments">
-                          {getMessageImageAttachments(message).map((image) => (
-                            <img key={image.id} src={image.dataUrl} alt={image.name} />
-                          ))}
+                  <React.Fragment key={message.id}>
+                    <article className={`message ${message.role === 'user' ? 'user-message' : 'assistant-message'}`}>
+                      <div className="message-meta">
+                        <span>{message.role === 'user' ? 'You' : 'Aid'}</span>
+                        <time>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+                      </div>
+                      <div className="message-content">
+                        <MarkdownRenderer
+                          content={message.content}
+                          isStreaming={message.role === 'assistant' && messageWithStatus.status === 'sending'}
+                        />
+                        {getMessageImageAttachments(message).length > 0 && (
+                          <div className="message-attachments">
+                            {getMessageImageAttachments(message).map((image) => (
+                              <img key={image.id} src={image.dataUrl} alt={image.name} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {renderMessageStatus(messageWithStatus)}
+                    </article>
+                    {messageReceipts.map((receipt) => (
+                      <details key={receipt.runId} className={`agent-receipt-card status-${receipt.status}`}>
+                        <summary>
+                          <ShieldCheck size={15} />
+                          <span>Agent receipt</span>
+                          <strong>{receipt.status}</strong>
+                        </summary>
+                        <div className="agent-receipt-body">
+                          <p><strong>{receipt.pageTitle}</strong><span>{receipt.pageUrl || 'Page URL unavailable'}</span></p>
+                          <p>
+                            <time>{new Date(receipt.startedAt).toLocaleString()}</time>
+                            <span>{receipt.tokenUsage.totalTokens} tokens · {receipt.steps.length} steps</span>
+                          </p>
+                          {receipt.steps.length > 0 && (
+                            <ol>
+                              {receipt.steps.map((step, index) => (
+                                <li key={`${receipt.runId}_${index}`}>
+                                  <strong>{step.tool.replaceAll('_', ' ')}</strong>
+                                  <span>{step.targetLabel}</span>
+                                  <small>{step.outcome} · {step.approvalState.replaceAll('_', ' ')} · {step.durationMs} ms</small>
+                                  {step.failure && <small className="agent-receipt-failure">{step.failure}</small>}
+                                </li>
+                              ))}
+                            </ol>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    {renderMessageStatus(messageWithStatus)}
-                  </article>
+                      </details>
+                    ))}
+                  </React.Fragment>
                 );
               })}
               {chatState.isLoading && panelMode === 'chat' && (

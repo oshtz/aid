@@ -80,6 +80,70 @@ test.describe('Aid current-page Agent mode', () => {
     });
   });
 
+  test('persists a sanitized Agent receipt and restores it from history', async () => {
+    providerServer.queueChatResponse({
+      kind: 'agent',
+      tool: 'click_element_by_index',
+      targetText: 'Open filters',
+    });
+    providerServer.queueChatResponse({
+      kind: 'agent',
+      tool: 'done',
+      text: 'Filters are open.',
+    });
+    const { panelPage } = await openAgentPanel(aid, fixtureServer);
+
+    await startAgentTask(panelPage, 'Open the filters and save a receipt');
+    const receipt = panelPage.locator('.agent-receipt-card').last();
+    await expect(receipt).toContainText('completed', { timeout: AGENT_RESULT_TIMEOUT });
+
+    const readStoredConversation = () => panelPage.evaluate(async () => {
+      const databases = await indexedDB.databases();
+      if (!databases.some((database) => database.name === 'AidExtension')) return null;
+      return new Promise<string | null>((resolveStored) => {
+        const openRequest = indexedDB.open('AidExtension');
+        openRequest.onerror = () => resolveStored(null);
+        openRequest.onsuccess = () => {
+          const database = openRequest.result;
+          if (!database.objectStoreNames.contains('conversations')) {
+            database.close();
+            resolveStored(null);
+            return;
+          }
+          const request = database.transaction('conversations', 'readonly').objectStore('conversations').getAll();
+          request.onerror = () => resolveStored(null);
+          request.onsuccess = () => {
+            database.close();
+            const conversation = request.result.find((item) => item.agentReceipts?.length > 0);
+            resolveStored(conversation ? JSON.stringify(conversation) : null);
+          };
+        };
+      });
+    });
+    await expect.poll(readStoredConversation, { timeout: 10_000 }).not.toBeNull();
+    const storedConversation = await readStoredConversation();
+
+    expect(storedConversation).not.toContain('never-send-this');
+    expect(storedConversation).not.toMatch(/"(?:history|reflection|rawRequest|rawResponse|observation|enteredText)"/);
+
+    await panelPage.reload();
+    await expect(panelPage.locator('.chat-input')).toBeEnabled({ timeout: AGENT_RESULT_TIMEOUT });
+    await panelPage.getByRole('button', { name: 'Open chat history' }).click();
+    const savedConversation = panelPage.locator('.conversation-item').filter({
+      hasText: 'Open the filters and save a receipt',
+    }).first();
+    await expect(savedConversation).toBeVisible({ timeout: AGENT_RESULT_TIMEOUT });
+    await savedConversation.click();
+
+    const restoredReceipt = panelPage.locator('.agent-receipt-card').last();
+    await expect(restoredReceipt).toContainText('completed');
+    await restoredReceipt.locator('summary').click();
+    await expect(restoredReceipt).toContainText('Aid Agent Safety Fixture');
+    await expect(restoredReceipt).toContainText('click');
+    await expect(restoredReceipt).toContainText('not required');
+    await expect(restoredReceipt).toContainText(/\d+ tokens/);
+  });
+
   test('asks once before a consequential action and executes an approval', async () => {
     providerServer.queueChatResponse({
       kind: 'agent',
@@ -107,6 +171,9 @@ test.describe('Aid current-page Agent mode', () => {
       'The report was published.',
       { timeout: AGENT_RESULT_TIMEOUT }
     );
+    const receipt = panelPage.locator('.agent-receipt-card').last();
+    await receipt.locator('summary').click();
+    await expect(receipt).toContainText('approved');
   });
 
   test('keeps the page unchanged when approval is denied', async () => {
@@ -196,6 +263,7 @@ test.describe('Aid current-page Agent mode', () => {
     await panelPage.getByRole('button', { name: 'Stop agent task' }).click();
 
     await expect(panelPage.locator('.agent-run-card')).toHaveCount(0);
+    await expect(panelPage.locator('.agent-receipt-card').last()).toContainText('stopped');
     await expect(panelPage.locator('.chat-input')).toBeEnabled();
     await expect(panelPage.getByText('This should never render.')).toHaveCount(0);
   });
@@ -217,6 +285,28 @@ test.describe('Aid current-page Agent mode', () => {
     await expect(panelPage.locator('.chat-error-banner')).toContainText('Navigation stopped', {
       timeout: AGENT_RESULT_TIMEOUT,
     });
+    await expect(panelPage.locator('.agent-receipt-card').last()).toContainText('stopped');
     await expect(panelPage.getByText('This late result should never render.')).toHaveCount(0);
+  });
+
+  test('cancels a pending approval when navigation stops the run', async () => {
+    providerServer.queueChatResponse({
+      kind: 'agent',
+      tool: 'click_element_by_index',
+      targetText: 'Publish report',
+    });
+    const { fixturePage, panelPage } = await openAgentPanel(aid, fixtureServer);
+
+    await startAgentTask(panelPage, 'Publish after approval');
+    await expect(panelPage.locator('.agent-approval')).toBeVisible({ timeout: AGENT_RESULT_TIMEOUT });
+    await fixturePage.goto(`${fixtureServer.origin}/research-page.html`);
+
+    await expect(panelPage.locator('.chat-error-banner')).toContainText('Navigation stopped', {
+      timeout: AGENT_RESULT_TIMEOUT,
+    });
+    const receipt = panelPage.locator('.agent-receipt-card').last();
+    await expect(receipt).toContainText('stopped');
+    await receipt.locator('summary').click();
+    await expect(receipt).toContainText('cancelled');
   });
 });

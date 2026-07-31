@@ -158,6 +158,31 @@ export interface TokenUsage {
   estimatedCost?: number;
 }
 
+export type AgentReceiptStatus = 'completed' | 'failed' | 'stopped';
+export type AgentReceiptStepOutcome = 'completed' | 'failed' | 'blocked' | 'denied';
+export type AgentReceiptApprovalState = 'not_required' | 'approved' | 'denied' | 'blocked' | 'cancelled';
+
+export interface AgentReceiptStep {
+  tool: string;
+  targetLabel: string;
+  outcome: AgentReceiptStepOutcome;
+  approvalState: AgentReceiptApprovalState;
+  durationMs: number;
+  failure?: string;
+}
+
+export interface AgentRunReceipt {
+  runId: string;
+  taskMessageId: string;
+  pageUrl: string;
+  pageTitle: string;
+  startedAt: number;
+  completedAt: number;
+  status: AgentReceiptStatus;
+  tokenUsage: TokenUsage;
+  steps: AgentReceiptStep[];
+}
+
 /**
  * Metadata for chat conversations
  */
@@ -182,6 +207,7 @@ export interface ChatConversation {
   userTitle?: string;
   tags: string[];
   messages: ChatMessage[];
+  agentReceipts?: AgentRunReceipt[];
   metadata: ConversationMetadata;
   createdAt: number;
   updatedAt: number;

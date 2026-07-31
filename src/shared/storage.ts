@@ -9,6 +9,7 @@ import type {
   StorageUsage,
   ChatRequest
 } from './types';
+import { sanitizeAgentReceipts } from './agent-receipts';
 import { DEFAULT_ACCENT_COLOR, normalizeAccentColor } from './accent';
 
 interface LegacyTabChatHistory {
@@ -282,15 +283,22 @@ export class ChatHistoryManager {
     const transaction = db.transaction([IndexedDBManager.CONVERSATIONS_STORE], 'readwrite');
     const store = transaction.objectStore(IndexedDBManager.CONVERSATIONS_STORE);
 
+    const agentReceipts = sanitizeAgentReceipts(conversation.agentReceipts);
+    const safeConversation: ChatConversation = {
+      ...conversation,
+      ...(agentReceipts.length > 0 ? { agentReceipts } : {}),
+    };
+    if (agentReceipts.length === 0) delete safeConversation.agentReceipts;
+
     // Update timestamps
     const now = Date.now();
-    conversation.updatedAt = now;
-    if (!conversation.createdAt) {
-      conversation.createdAt = now;
+    safeConversation.updatedAt = now;
+    if (!safeConversation.createdAt) {
+      safeConversation.createdAt = now;
     }
 
     return new Promise((resolve, reject) => {
-      const request = store.put(conversation);
+      const request = store.put(safeConversation);
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve();
     });

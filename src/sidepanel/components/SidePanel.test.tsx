@@ -51,6 +51,17 @@ describe('buildSavedConversation', () => {
       conversationId: 'conv-1',
       existingConversation,
       messages: [userMessage, assistantMessage],
+      agentReceipts: [{
+        runId: 'agent-1',
+        taskMessageId: userMessage.id,
+        pageUrl: 'https://example.com/release',
+        pageTitle: 'Release page',
+        startedAt: 150,
+        completedAt: 180,
+        status: 'completed',
+        tokenUsage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 },
+        steps: [],
+      }],
       provider: 'openai',
       model: 'gpt-4.1',
       context: [{
@@ -69,6 +80,7 @@ describe('buildSavedConversation', () => {
     expect(saved.tags).toEqual(['release', 'pinned']);
     expect(saved.isPinned).toBe(true);
     expect(saved.messages).toHaveLength(2);
+    expect(saved.agentReceipts).toHaveLength(1);
     expect(saved.metadata.provider).toBe('openai');
     expect(saved.metadata.model).toBe('gpt-4.1');
     expect(saved.metadata.messageCount).toBe(2);

@@ -868,6 +868,91 @@ button {
   font-size: 10px;
 }
 
+.agent-receipt-card {
+  margin: -2px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.agent-receipt-card summary {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 9px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.agent-receipt-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-receipt-card summary svg,
+.agent-receipt-card.status-completed summary strong {
+  color: var(--success);
+}
+
+.agent-receipt-card.status-failed summary strong {
+  color: var(--danger);
+}
+
+.agent-receipt-card.status-stopped summary strong {
+  color: var(--warning);
+}
+
+.agent-receipt-card summary strong {
+  text-transform: capitalize;
+}
+
+.agent-receipt-body {
+  display: grid;
+  gap: 7px;
+  padding: 0 9px 9px;
+  border-top: 1px solid var(--line);
+}
+
+.agent-receipt-body p {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 7px 0 0;
+}
+
+.agent-receipt-body p span {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-receipt-body ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.agent-receipt-body li {
+  padding-left: 2px;
+}
+
+.agent-receipt-body li > * {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.agent-receipt-body li small {
+  color: var(--muted);
+}
+
+.agent-receipt-body .agent-receipt-failure {
+  color: var(--danger);
+}
+
 .agent-approval {
   display: grid;
   gap: 8px;

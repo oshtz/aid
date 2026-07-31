@@ -50,12 +50,15 @@ import { AidAgentRun } from './agent-runtime';
 const createRun = () => new AidAgentRun({
   tabId: 7,
   initialUrl: 'https://example.com/',
+  initialTitle: 'Example page',
+  taskMessageId: 'user_1',
   providerId: 'ollama',
   auth: { kind: 'none', host: 'http://localhost:11434' },
   model: 'test-model',
   onActivity: vi.fn(),
   onStep: vi.fn(),
   onApproval: vi.fn(async () => false),
+  onInterrupted: vi.fn(),
 });
 
 describe('AidAgentRun lifecycle', () => {

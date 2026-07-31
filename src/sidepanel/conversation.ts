@@ -2,6 +2,7 @@ import type {
   ChatConversation,
   ChatMessage,
   ConversationMetadata,
+  AgentRunReceipt,
   ProviderId,
   TabContext,
 } from '@/shared/types';
@@ -10,6 +11,7 @@ export const buildSavedConversation = (options: {
   conversationId: string;
   existingConversation?: ChatConversation | null;
   messages: ChatMessage[];
+  agentReceipts: AgentRunReceipt[];
   provider: ProviderId;
   model: string;
   context: TabContext[];
@@ -19,6 +21,7 @@ export const buildSavedConversation = (options: {
     conversationId,
     existingConversation,
     messages,
+    agentReceipts,
     provider,
     model,
     context,
@@ -54,6 +57,7 @@ export const buildSavedConversation = (options: {
     ...(existingConversation?.userTitle ? { userTitle: existingConversation.userTitle } : {}),
     tags,
     messages,
+    ...(agentReceipts.length > 0 ? { agentReceipts } : {}),
     metadata,
     createdAt: existingConversation?.createdAt || now,
     updatedAt: now,
