@@ -21,20 +21,27 @@ export const toOriginPermissionPattern = (input: string): string | null => {
   }
 };
 
+const requestOriginPermissions = async (origins: string[]): Promise<boolean> => {
+  if (origins.length === 0 || !browser.permissions?.request) {
+    return false;
+  }
+
+  const granted = await browser.permissions.request({ origins });
+  return granted && browser.permissions.contains
+    ? browser.permissions.contains({ origins })
+    : granted;
+};
+
 export const ensureOriginPermissions = (inputs: string[]): Promise<boolean> => {
   const origins = [...new Set(inputs
     .map(toOriginPermissionPattern)
     .filter((origin): origin is string => origin !== null))];
 
-  if (origins.length === 0 || !browser.permissions?.request) {
-    return Promise.resolve(true);
-  }
-
-  return browser.permissions.request({ origins });
+  return requestOriginPermissions(origins);
 };
 
 export const ensureOriginPermission = (input: string): Promise<boolean> =>
   ensureOriginPermissions([input]);
 
 export const ensureAllPagePermissions = (): Promise<boolean> =>
-  ensureOriginPermissions([...ALL_PAGE_PERMISSION_ORIGINS]);
+  requestOriginPermissions([...ALL_PAGE_PERMISSION_ORIGINS]);

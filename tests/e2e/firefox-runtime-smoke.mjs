@@ -9,6 +9,8 @@ import { firefox } from '@playwright/test';
 
 const EXTENSION_ID = '{2f6b9f52-35ec-44cb-9f1d-4a37d4c7747c}';
 const SENTINEL = 'FIREFOX_CONTEXT_SENTINEL_9271';
+const ALL_PAGE_PERMISSION_ORIGINS = ['https://*/*', 'http://*/*'];
+const fixtureHost = '127.0.0.2';
 const sourceDir = path.resolve('dist');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -19,11 +21,11 @@ assert.deepEqual(
   'dist must contain the Firefox build before this smoke test runs',
 );
 
-function getFreePort() {
+function getFreePort(host = '127.0.0.1') {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
     server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(0, host, () => {
       const { port } = server.address();
       server.close(() => resolve(port));
     });
@@ -101,9 +103,9 @@ async function readExtensionUuid(profileDir) {
   throw new Error(`Firefox did not publish a UUID for ${EXTENSION_ID}`);
 }
 
-const fixturePort = await getFreePort();
+const fixturePort = await getFreePort(fixtureHost);
 const bidiPort = await getFreePort();
-const fixtureUrl = `http://127.0.0.1:${fixturePort}/fixture`;
+const fixtureUrl = `http://${fixtureHost}:${fixturePort}/fixture`;
 const fixtureHtml = `<!doctype html>
 <html>
   <head><title>Aid Firefox Sentinel</title></head>
@@ -125,7 +127,7 @@ const fixtureServer = http.createServer((_request, response) => {
 });
 await new Promise((resolve, reject) => {
   fixtureServer.once('error', reject);
-  fixtureServer.listen(fixturePort, '127.0.0.1', resolve);
+  fixtureServer.listen(fixturePort, fixtureHost, resolve);
 });
 
 let runner;
@@ -136,6 +138,7 @@ try {
     firefox: firefox.executablePath(),
     noInput: true,
     noReload: true,
+    pref: { 'extensions.webextOptionalPermissionPrompts': false },
     startUrl: [fixtureUrl],
     args: ['--headless', `--remote-debugging-port=${bidiPort}`],
   }, { shouldExitProgram: false });
@@ -159,7 +162,6 @@ try {
     wait: 'complete',
   });
   assert.equal(navigation.url, sidepanelUrl);
-  await bidi.command('browsingContext.activate', { context: fixtureContext.context });
 
   const evaluate = async (expression) => {
     const response = await bidi.command('script.evaluate', {
@@ -175,18 +177,68 @@ try {
     return response.result?.value;
   };
 
+  const hadAllPagePermissions = await evaluate(
+    `(async () => browser.permissions.contains({ origins: ${JSON.stringify(ALL_PAGE_PERMISSION_ORIGINS)} }))()`,
+  );
+  assert.equal(hadAllPagePermissions, false, 'Fresh Firefox profile unexpectedly had all-sites access');
+
+  let disclosureButtonFocused = false;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    disclosureButtonFocused = Boolean(await evaluate(`(() => {
+      const button = [...document.querySelectorAll('button')]
+        .find((candidate) => candidate.textContent?.includes('Allow on all websites'));
+      button?.focus();
+      return button !== undefined && document.activeElement === button;
+    })()`));
+    if (disclosureButtonFocused) break;
+    await delay(100);
+  }
+  assert.equal(disclosureButtonFocused, true, 'Firefox all-sites disclosure button was not ready');
+
+  await bidi.command('input.performActions', {
+    context: sidepanelContext,
+    actions: [{
+      type: 'key',
+      id: 'keyboard',
+      actions: [
+        { type: 'keyDown', value: '\uE007' },
+        { type: 'keyUp', value: '\uE007' },
+      ],
+    }],
+  });
+  await bidi.command('input.releaseActions', { context: sidepanelContext });
+
+  let permissionState;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    permissionState = JSON.parse(await evaluate(
+      `(async () => JSON.stringify({` +
+        `contains: await browser.permissions.contains({ origins: ${JSON.stringify(ALL_PAGE_PERMISSION_ORIGINS)} }),` +
+        `all: await browser.permissions.getAll(),` +
+        `settings: await browser.runtime.sendMessage({ type: 'GET_SETTINGS', payload: {} })` +
+      `}))()`,
+    ));
+    if (permissionState.contains && permissionState.settings?.settings?.dataDisclosureVersion === 1) break;
+    await delay(100);
+  }
+  assert.equal(permissionState?.contains, true, 'Firefox did not grant all-sites access');
+  assert.deepEqual(
+    permissionState.all.origins.filter((origin) => ALL_PAGE_PERMISSION_ORIGINS.includes(origin)),
+    ALL_PAGE_PERMISSION_ORIGINS,
+    'Firefox did not retain the raw wildcard origins',
+  );
+  assert.equal(
+    permissionState.settings?.settings?.dataDisclosureVersion,
+    1,
+    'Disclosure did not finish after Firefox granted all-sites access',
+  );
+
+  await bidi.command('browsingContext.activate', { context: fixtureContext.context });
+
   const activeTabs = JSON.parse(await evaluate(
     '(async () => JSON.stringify(await browser.tabs.query({ active: true, currentWindow: true })))()',
   ));
   const fixtureTab = activeTabs.find((tab) => tab.url === fixtureUrl);
   assert.ok(fixtureTab?.id, 'Firefox fixture tab was not active');
-
-  const disclosureResponse = JSON.parse(await evaluate(
-    `(async () => JSON.stringify(await browser.runtime.sendMessage({` +
-      `type: 'UPDATE_SETTINGS', payload: { settings: { dataDisclosureVersion: 1 } }` +
-    `})))()`,
-  ));
-  assert.equal(disclosureResponse.success, true);
 
   const contextResponse = JSON.parse(await evaluate(
     `(async () => JSON.stringify(await browser.runtime.sendMessage({` +
@@ -206,7 +258,7 @@ try {
   assert.match(bodyText, /Page context ready/);
   assert.doesNotMatch(bodyText, /No readable page context is available/);
 
-  console.log(`Firefox ${session.capabilities.browserVersion}: sidepanel page-context smoke passed`);
+  console.log(`Firefox ${session.capabilities.browserVersion}: all-sites permission and page-context smoke passed`);
 } finally {
   try {
     bidi?.socket.close();

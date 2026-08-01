@@ -425,6 +425,7 @@ export const SidePanel: React.FC = () => {
   const [currentContext, setCurrentContext] = useState<TabContext[]>([]);
   const [contextStatus, setContextStatus] = useState<ContextStatus>(defaultContextStatus);
   const [contextDiagnostics, setContextDiagnostics] = useState<ContextLookupDiagnostics | undefined>();
+  const [isRequestingPageAccess, setIsRequestingPageAccess] = useState(false);
   const [contextAttachEnabled, setContextAttachEnabled] = useState(true);
   const [showContextInspector, setShowContextInspector] = useState(false);
   const [isRefreshingContext, setIsRefreshingContext] = useState(false);
@@ -763,6 +764,7 @@ export const SidePanel: React.FC = () => {
   };
 
   const requestPageAccessAndRefresh = async (pageAccess: PageAccessChoice = 'per-site') => {
+    setIsRequestingPageAccess(true);
     try {
       const allowAllSites = pageAccess === 'all-sites';
       setContextStatus({
@@ -811,6 +813,8 @@ export const SidePanel: React.FC = () => {
         message: 'Site access request failed',
         detail: error instanceof Error ? error.message : 'The browser rejected the permission request.',
       });
+    } finally {
+      setIsRequestingPageAccess(false);
     }
   };
 
@@ -840,11 +844,15 @@ export const SidePanel: React.FC = () => {
     browser.tabs.onActivated.addListener(refresh);
     browser.tabs.onUpdated.addListener(handleUpdated);
     browser.windows.onFocusChanged.addListener(handleWindowFocus);
+    browser.permissions?.onAdded?.addListener(refresh);
+    browser.permissions?.onRemoved?.addListener(refresh);
 
     return () => {
       browser.tabs.onActivated.removeListener(refresh);
       browser.tabs.onUpdated.removeListener(handleUpdated);
       browser.windows.onFocusChanged.removeListener(handleWindowFocus);
+      browser.permissions?.onAdded?.removeListener(refresh);
+      browser.permissions?.onRemoved?.removeListener(refresh);
     };
   }, [updateCurrentContext, extensionSettings]);
 
@@ -1823,9 +1831,9 @@ export const SidePanel: React.FC = () => {
     currentModel.trim() &&
     !isLikelyVisionModel(currentProvider, currentModel)
   );
-  const isContextUnavailable = attachedContexts.length === 0 &&
-    (contextStatus.state === 'empty' || contextStatus.state === 'error');
   const needsHostPermission = contextNeedsHostPermission(contextDiagnostics);
+  const isContextUnavailable = attachedContexts.length === 0 &&
+    (contextStatus.state === 'empty' || contextStatus.state === 'error' || isRequestingPageAccess);
 
   const renderEmptyState = () => {
     if (needsReconnect && reconnectProvider) {
@@ -1934,10 +1942,18 @@ export const SidePanel: React.FC = () => {
           <div className="empty-actions">
             {needsHostPermission ? (
               <>
-                <button className="primary-action" onClick={() => void requestPageAccessAndRefresh('all-sites')}>
-                  Allow on all websites
+                <button
+                  className="primary-action"
+                  onClick={() => void requestPageAccessAndRefresh('all-sites')}
+                  disabled={isRequestingPageAccess}
+                >
+                  {isRequestingPageAccess ? 'Waiting for browser' : 'Allow on all websites'}
                 </button>
-                <button className="ghost-action" onClick={() => void requestPageAccessAndRefresh('per-site')}>
+                <button
+                  className="ghost-action"
+                  onClick={() => void requestPageAccessAndRefresh('per-site')}
+                  disabled={isRequestingPageAccess}
+                >
                   Allow this website
                 </button>
               </>
@@ -2134,17 +2150,17 @@ export const SidePanel: React.FC = () => {
                   onClick={() => void (needsHostPermission
                     ? requestPageAccessAndRefresh('all-sites')
                     : updateCurrentContext())}
-                  disabled={contextStatus.state === 'checking'}
+                  disabled={isRequestingPageAccess || contextStatus.state === 'checking'}
                 >
                   {needsHostPermission ? <KeyRound size={14} /> : <RefreshCw size={14} />}
-                  {needsHostPermission ? 'Allow on all websites' : 'Refresh'}
+                  {isRequestingPageAccess ? 'Waiting for browser' : needsHostPermission ? 'Allow on all websites' : 'Refresh'}
                 </button>
                 {needsHostPermission && (
                   <button
                     type="button"
                     className="secondary-action context-refresh"
                     onClick={() => void requestPageAccessAndRefresh('per-site')}
-                    disabled={contextStatus.state === 'checking'}
+                    disabled={isRequestingPageAccess || contextStatus.state === 'checking'}
                   >
                     <KeyRound size={14} />
                     Allow this website

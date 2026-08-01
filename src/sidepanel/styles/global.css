@@ -557,6 +557,15 @@ button {
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
 }
 
+.primary-action:disabled,
+.secondary-action:disabled,
+.ghost-action:disabled {
+  cursor: default;
+  opacity: 0.65;
+  transform: none;
+  box-shadow: none;
+}
+
 .secondary-action,
 .ghost-action,
 .prompt-chips button {

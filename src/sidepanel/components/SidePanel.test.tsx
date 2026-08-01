@@ -132,6 +132,8 @@ describe('SidePanel browser lifecycle', () => {
   it('filters broadcast chat events and refreshes context from browser events instead of polling', () => {
     expect(source).toContain('message.requestId !== activeRequestIdRef.current');
     expect(source).toContain('browser.tabs.onActivated.addListener');
+    expect(source).toContain('browser.permissions?.onAdded?.addListener(refresh)');
+    expect(source).toContain("isRequestingPageAccess ? 'Waiting for browser'");
     expect(source).not.toContain('setInterval(');
   });
 
