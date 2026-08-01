@@ -22,6 +22,15 @@ if (typeof globalThis.chrome === 'undefined' && typeof globalThis.browser !== 'u
 }
 `;
 
+const FIREFOX_EVENT_TARGET_SHIM = `// Firefox MV3 Xrays break subclasses of DOM EventTarget (Bug 1820521).
+class AidEventTarget {
+  constructor() { this.eventTarget = new EventTarget(); }
+  addEventListener(...args) { return this.eventTarget.addEventListener(...args); }
+  removeEventListener(...args) { return this.eventTarget.removeEventListener(...args); }
+  dispatchEvent(event) { return this.eventTarget.dispatchEvent(event); }
+}
+`;
+
 const ensureDir = (path) => {
   if (!existsSync(path)) {
     mkdirSync(path, { recursive: true });
@@ -48,11 +57,20 @@ const copyDirFiles = (sourceDir, targetDir, predicate = () => true) => {
 };
 
 const patchFirefoxJavaScript = (source) => {
-  if (source.includes('globalThis.chrome') && !source.trimStart().startsWith(FIREFOX_API_SHIM)) {
-    return `${FIREFOX_API_SHIM}\n${source}`;
+  let patched = source;
+  if (patched.includes('var PageController = class extends EventTarget')) {
+    const eventTargetSubclasses = patched.match(/extends EventTarget/g) || [];
+    if (eventTargetSubclasses.length !== 2) {
+      throw new Error('Pinned Page Agent EventTarget subclasses changed; review before building.');
+    }
+    patched = `${FIREFOX_EVENT_TARGET_SHIM}\n${patched.replaceAll('extends EventTarget', 'extends AidEventTarget')}`;
   }
 
-  return source;
+  if (patched.includes('globalThis.chrome') && !patched.trimStart().startsWith(FIREFOX_API_SHIM)) {
+    return `${FIREFOX_API_SHIM}\n${patched}`;
+  }
+
+  return patched;
 };
 
 const copyPatchedJavaScript = (sourceFile, targetFile) => {

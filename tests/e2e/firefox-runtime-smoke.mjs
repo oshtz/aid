@@ -116,6 +116,7 @@ const fixtureHtml = `<!doctype html>
         <p>${SENTINEL} is embedded in this intentionally substantial paragraph so the
         page-context collector must preserve real readable document content from Firefox,
         not merely tab metadata or viewport dimensions.</p>
+        <button type="button">Open filters</button>
       </article>
     </main>
   </body>
@@ -249,6 +250,26 @@ try {
   assert.match(contextResponse.contexts?.[0]?.abstract ?? '', new RegExp(SENTINEL));
   assert.equal(contextResponse.diagnostics?.content?.[0]?.contextOk, true);
 
+  const agentRunId = 'firefox-agent-smoke';
+  const sendAgentCommand = async (command) => {
+    const message = {
+      type: 'AGENT_PAGE_CONTROL',
+      payload: { runId: agentRunId, command },
+    };
+    return JSON.parse(
+      await evaluate(
+        `(async () => JSON.stringify(await browser.tabs.sendMessage(${fixtureTab.id}, ${JSON.stringify(message)})))()`,
+      ),
+    );
+  };
+  assert.deepEqual(await sendAgentCommand({ command: 'start', initialUrl: fixtureUrl }), {
+    success: true,
+  });
+  const agentState = await sendAgentCommand({ command: 'get_browser_state' });
+  assert.equal(agentState.url, fixtureUrl);
+  assert.match(agentState.content, /Open filters/);
+  await sendAgentCommand({ command: 'cleanup' });
+
   let bodyText = '';
   for (let attempt = 0; attempt < 100; attempt += 1) {
     bodyText = String(await evaluate('document.body.innerText'));
@@ -258,7 +279,7 @@ try {
   assert.match(bodyText, /Page context ready/);
   assert.doesNotMatch(bodyText, /No readable page context is available/);
 
-  console.log(`Firefox ${session.capabilities.browserVersion}: all-sites permission and page-context smoke passed`);
+  console.log(`Firefox ${session.capabilities.browserVersion}: permissions, page context, and Agent controller smoke passed`);
 } finally {
   try {
     bidi?.socket.close();
