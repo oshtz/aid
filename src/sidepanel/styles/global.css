@@ -2570,6 +2570,41 @@ button {
   padding-left: 20px;
 }
 
+.data-disclosure-access {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.data-disclosure-access strong {
+  font-size: 13px;
+}
+
+.data-disclosure-access span {
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.data-disclosure-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.data-disclosure-actions .primary-action,
+.data-disclosure-actions .secondary-action {
+  min-height: 40px;
+  border-radius: 10px;
+}
+
+.data-disclosure-error {
+  color: var(--danger, #ef4444) !important;
+  font-size: 12px !important;
+}
+
 .data-disclosure .data-disclosure-note {
   color: var(--muted);
   font-size: 12px;

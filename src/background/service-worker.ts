@@ -348,9 +348,12 @@ class BackgroundService {
         const tab = await browser.tabs.get(tabId);
         contentDiagnostic.tab = this.toDiagnosticTab(tab);
 
-        const scriptStatus = await this.ensureContentScript(tabId);
+        const scriptStatus = await this.ensureContentScript(tabId, tab.url);
         contentDiagnostic.pingOk = scriptStatus.pingOk;
         contentDiagnostic.injected = scriptStatus.injected;
+        if (scriptStatus.permissionRequired !== undefined) {
+          contentDiagnostic.permissionRequired = scriptStatus.permissionRequired;
+        }
 
         if (!scriptStatus.ready) {
           console.warn(`Content script not available for tab ${tabId}`);
@@ -458,10 +461,11 @@ class BackgroundService {
     return result;
   }
 
-  private async ensureContentScript(tabId: number): Promise<{
+  private async ensureContentScript(tabId: number, tabUrl?: string): Promise<{
     ready: boolean;
     pingOk: boolean;
     injected: boolean;
+    permissionRequired?: boolean;
     error?: string;
   }> {
     if (await this.validateContentScript(tabId)) {
@@ -501,10 +505,20 @@ class BackgroundService {
       return result;
     } catch (error) {
       console.warn(`Failed to inject content script into tab ${tabId}:`, error);
+      const origin = toOriginPermissionPattern(tabUrl || '');
+      let permissionRequired: boolean | undefined;
+      if (origin && browser.permissions?.contains) {
+        try {
+          permissionRequired = !(await browser.permissions.contains({ origins: [origin] }));
+        } catch {
+          // Permission diagnostics are best effort; preserve the injection error below.
+        }
+      }
       return {
         ready: false,
         pingOk: false,
         injected: false,
+        ...(permissionRequired === undefined ? {} : { permissionRequired }),
         error: error instanceof Error ? error.message : String(error),
       };
     }

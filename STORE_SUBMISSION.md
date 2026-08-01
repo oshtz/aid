@@ -33,6 +33,10 @@ Privacy summary:
 
 > Aid is local-first and bring-your-own-provider. It has no analytics or developer-operated backend. You choose when live or pinned page context is attached and which provider receives it. API keys are session-only by default.
 
+Page-access note:
+
+> Users can allow normal websites once or approve them individually. Permission alone does not send page content. While the Aid sidebar is open, it reads the current page locally to show context status and sends content to the selected provider only when the user attaches context or invokes a current-page action.
+
 Agent Beta note:
 
 > Agent Beta operates only on the starting page. Links and sensitive fields are blocked, consequential actions require approval, and navigation or switching tabs stops the run. Redaction is best effort.
@@ -50,7 +54,7 @@ Agent Beta note:
 - [ ] Upload the Chrome ZIP and complete Chrome review questions.
 - [ ] Upload the Firefox ZIP and matching source ZIP, and confirm AMO data-collection declarations match the manifest.
 - [ ] Install the packaged Chrome build and prove disclosure, provider setup, live and pinned context, pin restoration and removal, chat, cancellation, Agent approval, navigation stop, and upgrade from the current public version.
-- [ ] Manually install the packaged Firefox build in native Firefox, open the real sidebar, grant optional page access from a direct click, and prove readable page context. The automated smoke opens the sidebar code in a tab and is not evidence of this native permission flow.
+- [ ] Manually install the packaged Firefox build in native Firefox, open the real sidebar, prove both the recommended all-websites grant and per-site fallback from direct clicks, and confirm readable page context. The automated smoke opens the sidebar code in a tab and is not evidence of this native permission flow.
 - [ ] Record store review results and public versions only after the stores report them.
 
 ## Proof not yet claimed

@@ -76,7 +76,7 @@ For a temporary local build:
 - Requests go directly from your browser to the selected AI provider or local endpoint.
 - API keys use session-only browser extension storage by default.
 - Choosing **Remember on this browser profile** stores credentials in extension-local browser storage. It does not protect them from someone with access to the browser profile or device.
-- Page context is collected only from the active page or optional site access; Aid does not auto-run a content script on every website at install time.
+- During disclosure, you can allow normal websites once or ask per site. Permission alone does not send page content. While the Aid sidebar is open, it reads the current page locally to show context status and sends context only when you attach it or use a current-page action.
 - No tracking or analytics.
 
 ## Browser Notes

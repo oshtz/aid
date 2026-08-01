@@ -25,7 +25,9 @@ test.describe('Aid data disclosure', () => {
     await expect(panelPage.getByRole('heading', { name: 'Choose how Aid can use page data' })).toBeVisible();
     await expect(panelPage.locator('.chat-input')).toHaveCount(0);
 
-    await panelPage.getByRole('button', { name: 'Accept and continue' }).click();
+    await expect(panelPage.getByRole('button', { name: 'Allow on all websites' })).toBeVisible();
+    await expect(panelPage.getByRole('button', { name: 'Ask for each website' })).toBeVisible();
+    await panelPage.getByRole('button', { name: 'Ask for each website' }).click();
     await expect(panelPage.getByRole('button', { name: /Page context ready/ })).toBeVisible({ timeout: 15_000 });
     await expect(panelPage.locator('.context-inspector-summary')).toContainText('Quarterly Browser Automation Report');
 

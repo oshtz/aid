@@ -102,6 +102,10 @@ describe('SidePanel browser lifecycle', () => {
   const source = readFileSync(resolve(process.cwd(), 'src/sidepanel/components/SidePanel.tsx'), 'utf8');
 
   it('keeps Firefox permission requests inside the original user gesture', () => {
+    const disclosureHandler = source.slice(
+      source.indexOf('const acceptDataDisclosure'),
+      source.indexOf('useEffect(() => {', source.indexOf('const acceptDataDisclosure'))
+    );
     const grantHandler = source.slice(
       source.indexOf('const requestPageAccessAndRefresh'),
       source.indexOf('const hasSelectedText')
@@ -111,10 +115,14 @@ describe('SidePanel browser lifecycle', () => {
       source.indexOf('const handleSendMessage')
     );
 
-    const beforeGrantRequest = grantHandler.slice(0, grantHandler.indexOf('ensureOriginPermission('));
-    expect(beforeGrantRequest.match(/await /g)).toHaveLength(1);
-    expect(beforeGrantRequest.trimEnd().endsWith('await')).toBe(true);
+    const beforeGrantRequest = grantHandler.slice(0, grantHandler.indexOf('const permissionRequest'));
+    expect(beforeGrantRequest).not.toContain('await ');
+    expect(grantHandler).toContain('ensureAllPagePermissions()');
+    expect(grantHandler).toContain('ensureOriginPermission(origin)');
     expect(grantHandler).not.toContain('getActiveTabContextResult');
+    expect(disclosureHandler.indexOf('ensureAllPagePermissions()')).toBeLessThan(
+      disclosureHandler.indexOf("type: 'UPDATE_SETTINGS'")
+    );
     expect(agentHandler.indexOf('ensureOriginPermissions(')).toBeLessThan(
       agentHandler.indexOf('MessageHandler.getActiveTabContextResult(')
     );
@@ -125,5 +133,10 @@ describe('SidePanel browser lifecycle', () => {
     expect(source).toContain('message.requestId !== activeRequestIdRef.current');
     expect(source).toContain('browser.tabs.onActivated.addListener');
     expect(source).not.toContain('setInterval(');
+  });
+
+  it('uses structured permission diagnostics across browsers', () => {
+    expect(source).toContain('content.permissionRequired === true');
+    expect(source).not.toContain('/missing host permission/i');
   });
 });

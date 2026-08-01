@@ -1,6 +1,7 @@
 import browser from 'webextension-polyfill';
 
 const HTTP_SCHEMES = new Set(['http:', 'https:']);
+export const ALL_PAGE_PERMISSION_ORIGINS = ['https://*/*', 'http://*/*'] as const;
 
 export const toOriginPermissionPattern = (input: string): string | null => {
   const trimmed = input.trim();
@@ -34,3 +35,6 @@ export const ensureOriginPermissions = (inputs: string[]): Promise<boolean> => {
 
 export const ensureOriginPermission = (input: string): Promise<boolean> =>
   ensureOriginPermissions([input]);
+
+export const ensureAllPagePermissions = (): Promise<boolean> =>
+  ensureOriginPermissions([...ALL_PAGE_PERMISSION_ORIGINS]);

@@ -12,7 +12,12 @@ vi.mock('webextension-polyfill', () => ({
   },
 }));
 
-import { ensureOriginPermission, ensureOriginPermissions } from './permissions';
+import {
+  ALL_PAGE_PERMISSION_ORIGINS,
+  ensureAllPagePermissions,
+  ensureOriginPermission,
+  ensureOriginPermissions,
+} from './permissions';
 
 describe('origin permissions', () => {
   afterEach(() => {
@@ -43,5 +48,17 @@ describe('origin permissions', () => {
     expect(requestPermission).toHaveBeenCalledWith({
       origins: ['https://example.com/*', 'http://localhost/*'],
     });
+  });
+
+  it('requests normal webpage access once without a preflight', async () => {
+    requestPermission.mockResolvedValue(true);
+
+    const result = ensureAllPagePermissions();
+
+    expect(requestPermission).toHaveBeenCalledWith({
+      origins: [...ALL_PAGE_PERMISSION_ORIGINS],
+    });
+    expect(containsPermission).not.toHaveBeenCalled();
+    await expect(result).resolves.toBe(true);
   });
 });

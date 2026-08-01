@@ -12,7 +12,7 @@ const openFreshPanel = async (aid: AidExtensionContext, fixtureServer: RunningSe
   const fixturePage = await aid.context.newPage();
   await fixturePage.goto(`${fixtureServer.origin}/research-page.html`);
   const panelPage = await aid.openSidePanelPage();
-  await panelPage.getByRole('button', { name: 'Accept and continue' }).click();
+  await panelPage.getByRole('button', { name: 'Ask for each website' }).click();
   await expect(panelPage.locator('[aria-label="Set up Aid"]')).toBeVisible();
   return panelPage;
 };

@@ -35,7 +35,12 @@ import { MessageHandler } from '@/shared/message-handler';
 import { ProviderFactory } from '@/providers/provider-factory';
 import { ChatHistoryManager } from '@/shared/storage';
 import { AID_ACCENT_STORAGE_KEY, applyAccentColorToDocument, resolveAccentColor } from '@/shared/accent';
-import { ensureOriginPermission, ensureOriginPermissions, toOriginPermissionPattern } from '@/shared/permissions';
+import {
+  ensureAllPagePermissions,
+  ensureOriginPermission,
+  ensureOriginPermissions,
+  toOriginPermissionPattern,
+} from '@/shared/permissions';
 import { buildSavedConversation } from '@/sidepanel/conversation';
 import { AidAgentRun, describeAgentActivity } from '@/sidepanel/agent-runtime';
 import { sanitizeAgentReceipts } from '@/shared/agent-receipts';
@@ -62,7 +67,7 @@ import { ChatHistoryPanel } from './ChatHistoryPanel';
 import { ContextInspector } from './ContextInspector';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { ProviderActivation } from './ProviderActivation';
-import { DataDisclosure } from '@/shared/DataDisclosure';
+import { DataDisclosure, type PageAccessChoice } from '@/shared/DataDisclosure';
 import {
   DATA_DISCLOSURE_VERSION,
   hasAcceptedDataDisclosure,
@@ -224,8 +229,14 @@ const formatContextDiagnostics = (diagnostics?: ContextLookupDiagnostics): strin
   const selected = diagnostics.selectedTabIds.join(', ');
   const content = diagnostics.content[0];
 
+  if (content?.permissionRequired) {
+    return `Resolved tab ${selected}, but Aid needs permission to read this website.`;
+  }
+
   if (content?.error) {
-    return `Resolved tab ${selected}, but context read failed: ${content.error}`;
+    return content.permissionRequired === false
+      ? `Resolved tab ${selected}, but the browser blocked page context even though site access is granted. This page may be protected.`
+      : `Resolved tab ${selected}, but context read failed: ${content.error}`;
   }
 
   if (content?.fallback) {
@@ -263,6 +274,10 @@ const getContextTabCandidates = (diagnostics?: ContextLookupDiagnostics): Contex
 
 const contextReadFailed = (diagnostics?: ContextLookupDiagnostics): boolean => (
   diagnostics?.content.some((content) => content.fallback || content.error || content.pingOk === false) || false
+);
+
+const contextNeedsHostPermission = (diagnostics?: ContextLookupDiagnostics): boolean => (
+  diagnostics?.content.some((content) => content.permissionRequired === true) || false
 );
 
 const hasUsableTabContext = (
@@ -670,11 +685,15 @@ export const SidePanel: React.FC = () => {
     }
   }, []);
 
-  const acceptDataDisclosure = async () => {
-    if (!extensionSettings) return;
+  const acceptDataDisclosure = async (pageAccess: PageAccessChoice): Promise<boolean> => {
+    if (!extensionSettings) return false;
     setIsAcceptingDisclosure(true);
 
     try {
+      if (pageAccess === 'all-sites' && !await ensureAllPagePermissions()) {
+        return false;
+      }
+
       const nextSettings = {
         ...extensionSettings,
         dataDisclosureVersion: DATA_DISCLOSURE_VERSION,
@@ -687,8 +706,10 @@ export const SidePanel: React.FC = () => {
 
       await updateCurrentContext();
       setExtensionSettings(nextSettings);
+      return true;
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to save disclosure choice.');
+      return false;
     } finally {
       setIsAcceptingDisclosure(false);
     }
@@ -741,15 +762,16 @@ export const SidePanel: React.FC = () => {
     }
   };
 
-  const requestPageAccessAndRefresh = async () => {
+  const requestPageAccessAndRefresh = async (pageAccess: PageAccessChoice = 'per-site') => {
     try {
+      const allowAllSites = pageAccess === 'all-sites';
       setContextStatus({
         state: 'checking',
-        message: 'Requesting site access',
+        message: allowAllSites ? 'Requesting website access' : 'Requesting site access',
       });
 
-      const origin = getContextPermissionOrigin(contextDiagnostics);
-      if (!origin) {
+      const origin = allowAllSites ? null : getContextPermissionOrigin(contextDiagnostics);
+      if (!allowAllSites && !origin) {
         setCurrentContext([]);
         setContextStatus({
           state: 'empty',
@@ -761,14 +783,21 @@ export const SidePanel: React.FC = () => {
         return;
       }
 
-      const granted = await ensureOriginPermission(origin);
+      const permissionRequest = allowAllSites
+        ? ensureAllPagePermissions()
+        : origin
+          ? ensureOriginPermission(origin)
+          : Promise.resolve(false);
+      const granted = await permissionRequest;
 
       if (!granted) {
         setCurrentContext([]);
         setContextStatus({
           state: 'empty',
           message: 'Page context blocked',
-          detail: `Aid has not been granted access to ${origin.replace('/*', '')}.`,
+          detail: allowAllSites
+            ? 'Aid has not been granted access to normal websites. You can still allow only this site.'
+            : `Aid has not been granted access to ${origin?.replace('/*', '') || 'this website'}.`,
         });
         return;
       }
@@ -1796,6 +1825,7 @@ export const SidePanel: React.FC = () => {
   );
   const isContextUnavailable = attachedContexts.length === 0 &&
     (contextStatus.state === 'empty' || contextStatus.state === 'error');
+  const needsHostPermission = contextNeedsHostPermission(contextDiagnostics);
 
   const renderEmptyState = () => {
     if (needsReconnect && reconnectProvider) {
@@ -1902,12 +1932,20 @@ export const SidePanel: React.FC = () => {
           <h2>Page context unavailable</h2>
           <p>{contextStatus.detail || 'Aid can still answer without page context.'}</p>
           <div className="empty-actions">
-            <button className="primary-action" onClick={() => void updateCurrentContext()}>
-              Refresh
-            </button>
-            <button className="ghost-action" onClick={() => void requestPageAccessAndRefresh()}>
-              Grant site access
-            </button>
+            {needsHostPermission ? (
+              <>
+                <button className="primary-action" onClick={() => void requestPageAccessAndRefresh('all-sites')}>
+                  Allow on all websites
+                </button>
+                <button className="ghost-action" onClick={() => void requestPageAccessAndRefresh('per-site')}>
+                  Allow this website
+                </button>
+              </>
+            ) : (
+              <button className="primary-action" onClick={() => void updateCurrentContext()}>
+                Refresh
+              </button>
+            )}
             <button className="ghost-action" onClick={() => inputRef.current?.focus()}>
               Ask anyway
             </button>
@@ -2092,22 +2130,26 @@ export const SidePanel: React.FC = () => {
                 )}
                 <button
                   type="button"
-                  className="secondary-action context-refresh"
-                  onClick={() => void updateCurrentContext()}
+                  className={needsHostPermission ? 'primary-action context-refresh' : 'secondary-action context-refresh'}
+                  onClick={() => void (needsHostPermission
+                    ? requestPageAccessAndRefresh('all-sites')
+                    : updateCurrentContext())}
                   disabled={contextStatus.state === 'checking'}
                 >
-                  <RefreshCw size={14} />
-                  Refresh
+                  {needsHostPermission ? <KeyRound size={14} /> : <RefreshCw size={14} />}
+                  {needsHostPermission ? 'Allow on all websites' : 'Refresh'}
                 </button>
-                <button
-                  type="button"
-                  className="secondary-action context-refresh"
-                  onClick={() => void requestPageAccessAndRefresh()}
-                  disabled={contextStatus.state === 'checking'}
-                >
-                  <KeyRound size={14} />
-                  Grant site access
-                </button>
+                {needsHostPermission && (
+                  <button
+                    type="button"
+                    className="secondary-action context-refresh"
+                    onClick={() => void requestPageAccessAndRefresh('per-site')}
+                    disabled={contextStatus.state === 'checking'}
+                  >
+                    <KeyRound size={14} />
+                    Allow this website
+                  </button>
+                )}
               </div>
             )}
             {pinnedContexts.length > 0 && (
@@ -2283,7 +2325,7 @@ export const SidePanel: React.FC = () => {
   if (!hasAcceptedDataDisclosure(extensionSettings || undefined)) {
     return (
       <div className="disclosure-screen">
-        <DataDisclosure onAccept={() => void acceptDataDisclosure()} isSaving={isAcceptingDisclosure} />
+        <DataDisclosure onAccept={acceptDataDisclosure} isSaving={isAcceptingDisclosure} />
       </div>
     );
   }

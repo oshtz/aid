@@ -32,8 +32,8 @@ import {
   applyAccentColorToDocument,
   normalizeAccentColor,
 } from '@/shared/accent';
-import { ensureOriginPermission } from '@/shared/permissions';
-import { DataDisclosure } from '@/shared/DataDisclosure';
+import { ensureAllPagePermissions, ensureOriginPermission } from '@/shared/permissions';
+import { DataDisclosure, type PageAccessChoice } from '@/shared/DataDisclosure';
 import {
   DATA_DISCLOSURE_VERSION,
   hasAcceptedDataDisclosure,
@@ -435,17 +435,27 @@ export const OptionsPage: React.FC = () => {
     setMessage({ type: 'info', text: 'All provider configuration cleared. Save to apply.' });
   };
 
-  const acceptDataDisclosure = async () => {
+  const acceptDataDisclosure = async (pageAccess: PageAccessChoice): Promise<boolean> => {
     setIsAcceptingDisclosure(true);
-    const nextSettings = {
-      ...settings,
-      dataDisclosureVersion: DATA_DISCLOSURE_VERSION,
-    };
 
-    if (await persistSettings(undefined, nextSettings)) {
-      setSettings(nextSettings);
+    try {
+      if (pageAccess === 'all-sites' && !await ensureAllPagePermissions()) {
+        return false;
+      }
+
+      const nextSettings = {
+        ...settings,
+        dataDisclosureVersion: DATA_DISCLOSURE_VERSION,
+      };
+
+      if (await persistSettings(undefined, nextSettings)) {
+        setSettings(nextSettings);
+        return true;
+      }
+      return false;
+    } finally {
+      setIsAcceptingDisclosure(false);
     }
-    setIsAcceptingDisclosure(false);
   };
 
   if (isLoading) {
@@ -460,7 +470,7 @@ export const OptionsPage: React.FC = () => {
   if (!hasAcceptedDataDisclosure(settings)) {
     return (
       <main className="options-disclosure-screen">
-        <DataDisclosure onAccept={() => void acceptDataDisclosure()} isSaving={isAcceptingDisclosure} />
+        <DataDisclosure onAccept={acceptDataDisclosure} isSaving={isAcceptingDisclosure} />
       </main>
     );
   }

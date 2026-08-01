@@ -33,4 +33,11 @@ describe('background provider routing', () => {
     expect(source).toContain('hasAcceptedDataDisclosure(this.settingsService.getSettings())');
     expect(DATA_DISCLOSURE_ERROR).toContain('accept Aid');
   });
+
+  it('reports missing host permission without parsing browser-specific errors', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/background/service-worker.ts'), 'utf8');
+
+    expect(source).toContain('permissionRequired = !(await browser.permissions.contains');
+    expect(source).toContain('contentDiagnostic.permissionRequired = scriptStatus.permissionRequired');
+  });
 });

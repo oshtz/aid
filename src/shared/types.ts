@@ -69,6 +69,7 @@ export interface ContextDiagnosticsContent {
   tab?: ContextDiagnosticsTab;
   pingOk?: boolean;
   injected?: boolean;
+  permissionRequired?: boolean;
   fallback?: boolean;
   contextOk?: boolean;
   error?: string;
