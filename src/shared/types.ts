@@ -43,6 +43,7 @@ export interface TabContext {
   title: string;
   abstract: string;
   selection?: string;
+  source?: 'live' | 'pinned';
 }
 
 export interface ContextDiagnosticsTab {
@@ -68,6 +69,7 @@ export interface ContextDiagnosticsContent {
   tab?: ContextDiagnosticsTab;
   pingOk?: boolean;
   injected?: boolean;
+  permissionRequired?: boolean;
   fallback?: boolean;
   contextOk?: boolean;
   error?: string;
@@ -102,9 +104,18 @@ export interface ExtensionSettings {
   sessionOnly: boolean;
   theme: 'light' | 'dark' | 'auto';
   accentColor: string;
+  dataDisclosureVersion?: number;
+}
+
+export interface PinnedPageContext {
+  id: string;
+  capturedAt: number;
+  context: TabContext;
 }
 
 export type ProviderId = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'ollama' | 'lmstudio';
+export type AgentProviderId = Extract<ProviderId, 'openai' | 'openrouter' | 'ollama' | 'lmstudio'>;
+export type PanelMode = 'chat' | 'agent';
 
 export interface ProviderConfig {
   id: ProviderId;
@@ -134,6 +145,7 @@ export type MessageType =
   | 'SUMMARIZE_PAGE'
   | 'EXTRACT_KEY_POINTS'
   | 'MAKE_LIST'
+  | 'AGENT_PAGE_CONTROL'
   | 'OPEN_SIDE_PANEL_WITH_SELECTION';
 
 export interface ExtensionMessage<T = unknown> {
@@ -154,6 +166,31 @@ export interface TokenUsage {
   estimatedCost?: number;
 }
 
+export type AgentReceiptStatus = 'completed' | 'failed' | 'stopped';
+export type AgentReceiptStepOutcome = 'completed' | 'failed' | 'blocked' | 'denied';
+export type AgentReceiptApprovalState = 'not_required' | 'approved' | 'denied' | 'blocked' | 'cancelled';
+
+export interface AgentReceiptStep {
+  tool: string;
+  targetLabel: string;
+  outcome: AgentReceiptStepOutcome;
+  approvalState: AgentReceiptApprovalState;
+  durationMs: number;
+  failure?: string;
+}
+
+export interface AgentRunReceipt {
+  runId: string;
+  taskMessageId: string;
+  pageUrl: string;
+  pageTitle: string;
+  startedAt: number;
+  completedAt: number;
+  status: AgentReceiptStatus;
+  tokenUsage: TokenUsage;
+  steps: AgentReceiptStep[];
+}
+
 /**
  * Metadata for chat conversations
  */
@@ -161,6 +198,7 @@ export interface ConversationMetadata {
   provider: string;
   model: string;
   context: TabContext[];
+  pinnedContexts?: PinnedPageContext[];
   messageCount: number;
   tokenUsage: TokenUsage;
   lastActivity: number;
@@ -178,6 +216,7 @@ export interface ChatConversation {
   userTitle?: string;
   tags: string[];
   messages: ChatMessage[];
+  agentReceipts?: AgentRunReceipt[];
   metadata: ConversationMetadata;
   createdAt: number;
   updatedAt: number;

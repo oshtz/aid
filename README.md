@@ -1,6 +1,6 @@
 ## <img alt="Aid logo" src="./icons/icon-32.png" width="32" height="32"> Aid - AI Side Panel for Chrome and Firefox
 
-Aid is a browser extension that docks an AI chat side panel next to the current page. It can attach page context, selected text, visible UI state, forms, tables, lists, media labels, same-origin frames, open shadow DOM, and image attachments to provider requests.
+Aid is a browser extension that docks an AI chat side panel next to the current page. It can attach live page context, up to three pinned page snapshots, selected text, visible UI state, forms, tables, lists, media labels, same-origin frames, open shadow DOM, and image attachments to provider requests.
 
 <p align="center">
   <a href="https://youtu.be/Hqj6oXya_dA">
@@ -12,20 +12,22 @@ Aid is a browser extension that docks an AI chat side panel next to the current 
 
 - Chrome: available on [Chrome Web Store](https://chromewebstore.google.com/detail/aid/fellkedaphlkgjnllooocaokjbjnhffk)
 - Firefox: available on [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/aid/)
-- Release packages: https://github.com/oshtz/aid/releases/tag/v0.1.0
+- Release packages: https://github.com/oshtz/aid/releases/latest
 
 ## Features
 
 - Side panel chat for Chrome and Firefox.
 - Providers: OpenAI, Anthropic Claude, Google Gemini, OpenRouter, Ollama, and LM Studio.
-- Current-page context with redaction for common secrets, tokens, passwords, and private URL patterns.
+- Focused first-run setup for OpenRouter or Ollama, with model discovery and in-panel reconnect.
+- Opt-in Agent mode (beta) for OpenAI, OpenRouter, Ollama, and LM Studio, with automatic clicks and same-tab navigation plus inline approval for cross-site navigation.
+- Live current-page context plus up to three persistent pinned snapshots, with redaction for common secrets, tokens, passwords, and private URL patterns.
 - Context inspector with attach/detach control, token estimate, and redacted provider prompt preview.
 - Selected-text quick actions from the page and the side panel.
 - Image attachments for vision-capable provider models.
 - Streaming stop and regenerate controls.
 - Conversation history with search and filtering.
 - Theme and accent color settings.
-- Session-only API key storage by default, with optional encrypted persistent local storage.
+- Session-only API key storage by default, with optional storage on the current browser profile.
 
 ## Installation
 
@@ -55,16 +57,17 @@ For a temporary local build:
 ## Usage
 
 1. Open Aid from the browser toolbar or sidebar.
-2. Configure at least one provider in the options page.
-3. Test the connection and choose a model.
-4. Ask about the current page, review the attached context, run a selected-text quick action, or attach an image for a vision-capable model.
+2. Review and accept the in-extension data disclosure before Aid reads a page or contacts a provider.
+3. Connect OpenRouter or Ollama in the side panel, or open Options for another provider or advanced settings.
+4. Ask about the current page, optionally pin up to three page snapshots for multi-page chat, run a selected-text quick action, or attach an image for a vision-capable model.
+5. To operate the current tab, choose **Agent Beta** in the composer. Aid can click controls and follow same-tab links automatically; cross-site navigation requires approval. Sensitive fields, downloads, new tabs, and tab switching remain blocked.
 
 ## Provider Setup
 
 - Cloud providers require an API key saved in the extension settings.
 - Ollama defaults to `http://localhost:11434/v1`.
 - LM Studio defaults to `http://localhost:1234/v1`.
-- Local provider hosts require browser host access when configured.
+- Local provider hosts are restricted to HTTP loopback addresses: `localhost` or `127.0.0.1`, with any port.
 
 ## Privacy
 
@@ -72,8 +75,8 @@ For a temporary local build:
 - Aid does not operate a cloud service.
 - Requests go directly from your browser to the selected AI provider or local endpoint.
 - API keys use session-only browser extension storage by default.
-- Persistent API key storage encrypts keys before writing them to extension local storage, but it is not a substitute for full-device security.
-- Page context is collected only from the active page or optional site access; Aid does not auto-run a content script on every website at install time.
+- Choosing **Remember on this browser profile** stores credentials in extension-local browser storage. It does not protect them from someone with access to the browser profile or device.
+- During disclosure, you can allow normal websites once or ask per site. Permission alone does not send page content. While the Aid sidebar is open, it reads the current page locally to show context status and sends context only when you attach it or use a current-page action.
 - No tracking or analytics.
 
 ## Browser Notes
@@ -99,6 +102,7 @@ npm run lint
 npm run type-check
 npm test
 npm run test:e2e
+npm run test:e2e:firefox
 npm run release:check
 ```
 
@@ -113,6 +117,8 @@ Release artifacts:
 ```text
 artifacts/aid-chrome-<version>.zip
 artifacts/aid-firefox-<version>.zip
+artifacts/aid-source-<version>.zip
+artifacts/SHA256SUMS-<version>.txt
 ```
 
 Do not load a Chrome build into Firefox. The Chrome build uses `background.service_worker`; the Firefox build uses `background.scripts` and a sidebar-compatible entry point.

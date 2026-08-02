@@ -23,6 +23,22 @@ for (const file of ['content/content-script.js']) {
   }
 }
 
+for (const file of ['content/content-script.js', 'sidepanel/index.js']) {
+  const filePath = `dist/${file}`;
+  if (!fs.existsSync(filePath)) {
+    continue;
+  }
+  const content = fs.readFileSync(filePath, 'utf8');
+  if (/\beval\s*\(/.test(content)) {
+    console.error(`${file} must not contain eval; Agent script execution is disabled by policy.`);
+    process.exit(1);
+  }
+  if (/\bnew\s+Function\s*\(/.test(content)) {
+    console.error(`${file} must not contain dynamic Function construction.`);
+    process.exit(1);
+  }
+}
+
 const manifest = JSON.parse(fs.readFileSync('dist/manifest.json', 'utf8'));
 if (manifest.manifest_version !== 3) {
   console.error('Expected a Manifest V3 build.');
@@ -111,8 +127,8 @@ if (!isFirefoxBuild) {
     }
 
     const content = fs.readFileSync(filePath, 'utf8');
-    if (content.includes('!globalThis.chrome?.runtime?.id')) {
-      console.error(`${file} contains a Chrome-only runtime guard in a Firefox build.`);
+    if (/\b(?:globalThis\.)?chrome\b/.test(content) && !content.trimStart().startsWith('// Firefox compatibility')) {
+      console.error(`${file} uses the Chrome API without the Firefox compatibility shim.`);
       process.exit(1);
     }
   }

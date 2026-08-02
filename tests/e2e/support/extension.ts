@@ -73,8 +73,10 @@ export const launchAidExtension = async (): Promise<AidExtensionContext> => {
     context,
     extensionId,
     openSidePanelPage: async () => {
+      const pageToRestore = context.pages().at(-1);
       const page = await context.newPage();
       await page.goto(`chrome-extension://${extensionId}/sidepanel/index.html`);
+      await pageToRestore?.bringToFront();
       return page;
     },
     close: async () => {
@@ -98,6 +100,7 @@ export const configureAidForFakeProvider = async (
       defaultModels: { lmstudio: 'llava' },
       sessionOnly: true,
       theme: 'dark',
+      dataDisclosureVersion: 1,
     };
     const authMap = {
       lmstudio: {
@@ -150,6 +153,7 @@ const configureAidForLocalProvider = async (
       sessionOnly: true,
       theme: 'dark',
       accentColor: '#7c3aed',
+      dataDisclosureVersion: 1,
     };
     const authMap = {
       [provider]: {

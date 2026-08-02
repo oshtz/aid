@@ -7,7 +7,11 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: extension-release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   package:
@@ -16,6 +20,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -27,7 +33,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox
 
       - name: Validate release tag version
         run: npm run release:version:tag-check
@@ -41,4 +47,17 @@ jobs:
           name: aid-extension-packages
           path: |
             artifacts/*.zip
+            artifacts/SHA256SUMS-*.txt
           if-no-files-found: error
+
+      - name: Create GitHub release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          artifacts/*.zip
+          artifacts/SHA256SUMS-*.txt
+          --verify-tag
+          --generate-notes
+          --latest

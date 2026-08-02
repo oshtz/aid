@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
+  ArrowLeft,
   CheckCircle2,
+  ChevronDown,
   Circle,
   Cloud,
   Cpu,
@@ -32,7 +34,12 @@ import {
   applyAccentColorToDocument,
   normalizeAccentColor,
 } from '@/shared/accent';
-import { ensureOriginPermission } from '@/shared/permissions';
+import { ensureAllPagePermissions, ensureOriginPermission } from '@/shared/permissions';
+import { DataDisclosure, type PageAccessChoice } from '@/shared/DataDisclosure';
+import {
+  DATA_DISCLOSURE_VERSION,
+  hasAcceptedDataDisclosure,
+} from '@/shared/disclosure';
 
 const providers: ProviderId[] = ['openai', 'anthropic', 'gemini', 'openrouter', 'ollama', 'lmstudio'];
 
@@ -51,6 +58,7 @@ const themeOptions = [
 ];
 
 export const OptionsPage: React.FC = () => {
+  const isEmbedded = new URLSearchParams(window.location.search).has('embedded');
   const [settings, setSettings] = useState<ExtensionSettings>(defaultSettings);
   const [authMap, setAuthMap] = useState<ProviderAuthMap>({});
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -60,6 +68,7 @@ export const OptionsPage: React.FC = () => {
   const [providerModels, setProviderModels] = useState<Partial<Record<ProviderId, string[]>>>({});
   const [modelQueries, setModelQueries] = useState<Partial<Record<ProviderId, string>>>({});
   const [, setCurrentTheme] = useState<'light' | 'dark'>('dark');
+  const [isAcceptingDisclosure, setIsAcceptingDisclosure] = useState(false);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -177,8 +186,6 @@ export const OptionsPage: React.FC = () => {
     [isProviderReady]
   );
 
-  const defaultProviderConfig = ProviderFactory.getProviderConfig(settings.defaultProvider as ProviderId);
-
   const updateAuth = (providerId: ProviderId, value: string) => {
     const config = ProviderFactory.getProviderConfig(providerId);
     if (!config) return;
@@ -250,6 +257,12 @@ export const OptionsPage: React.FC = () => {
     const config = ProviderFactory.getProviderConfig(providerId);
     if (!config || config.authType !== 'none') {
       return true;
+    }
+
+    const validation = ProviderFactory.validateProviderConfig(providerId, auth || { kind: 'none' });
+    if (!validation.valid) {
+      setMessage({ type: 'error', text: validation.error || `Invalid ${config.name} host.` });
+      return false;
     }
 
     const granted = await ensureOriginPermission(auth?.host || config.endpoint);
@@ -333,6 +346,16 @@ export const OptionsPage: React.FC = () => {
 
       if (isValid) {
         let nextSettings = settings;
+        let nextAuthMap = authMap;
+
+        if (config.authType === 'none') {
+          const explicitAuth: ProviderAuth = {
+            kind: 'none',
+            host: auth?.host || config.endpoint,
+          };
+          nextAuthMap = { ...authMap, [providerId]: explicitAuth };
+          setAuthMap(nextAuthMap);
+        }
 
         try {
           const models = await provider.getModels();
@@ -355,7 +378,7 @@ export const OptionsPage: React.FC = () => {
           console.warn(`Failed to load models for ${providerId}:`, modelError);
         }
 
-        await persistSettings(`${config.name} connection works and was saved.`, nextSettings);
+        await persistSettings(`${config.name} connection works and was saved.`, nextSettings, nextAuthMap);
       } else {
         setMessage({ type: 'error', text: `${config.name} connection failed.` });
       }
@@ -413,6 +436,33 @@ export const OptionsPage: React.FC = () => {
     setMessage({ type: 'info', text: 'All provider configuration cleared. Save to apply.' });
   };
 
+  const closeEmbeddedSettings = () => {
+    window.parent.postMessage({ type: 'AID_CLOSE_SETTINGS' }, window.location.origin);
+  };
+
+  const acceptDataDisclosure = async (pageAccess: PageAccessChoice): Promise<boolean> => {
+    setIsAcceptingDisclosure(true);
+
+    try {
+      if (pageAccess === 'all-sites' && !await ensureAllPagePermissions()) {
+        return false;
+      }
+
+      const nextSettings = {
+        ...settings,
+        dataDisclosureVersion: DATA_DISCLOSURE_VERSION,
+      };
+
+      if (await persistSettings(undefined, nextSettings)) {
+        setSettings(nextSettings);
+        return true;
+      }
+      return false;
+    } finally {
+      setIsAcceptingDisclosure(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="loading-screen">
@@ -422,20 +472,36 @@ export const OptionsPage: React.FC = () => {
     );
   }
 
+  if (!hasAcceptedDataDisclosure(settings)) {
+    return (
+      <main className="options-disclosure-screen">
+        <DataDisclosure onAccept={acceptDataDisclosure} isSaving={isAcceptingDisclosure} />
+      </main>
+    );
+  }
+
   const logoUrl = chrome.runtime.getURL('icons/icon-32.png');
   const MessageIcon = message?.type === 'error' ? AlertCircle : message?.type === 'success' ? CheckCircle2 : Wifi;
 
   return (
-    <main className="settings-shell">
+    <main className={`settings-shell ${isEmbedded ? 'embedded' : ''}`}>
       <div className="settings-frame">
         <header className="settings-header">
           <div className="brand-lockup">
-            <span className="logo-frame">
-              <img src={logoUrl} alt="Aid" />
-            </span>
+            {isEmbedded ? (
+              <button className="icon-btn" type="button" onClick={closeEmbeddedSettings} aria-label="Back to chat">
+                <ArrowLeft size={17} />
+              </button>
+            ) : (
+              <span className="logo-frame">
+                <img src={logoUrl} alt="Aid" />
+              </span>
+            )}
             <span>
-              <span className="brand-title">Aid</span>
-              <span className="brand-subtitle">Settings</span>
+              <span className="brand-title">{isEmbedded ? 'Settings' : 'Aid'}</span>
+              <span className="brand-subtitle">
+                {isEmbedded ? `${configuredCount} of ${providers.length} providers ready` : 'Settings'}
+              </span>
             </span>
           </div>
 
@@ -463,21 +529,6 @@ export const OptionsPage: React.FC = () => {
 
         <div className="settings-layout">
           <aside className="settings-rail">
-            <section className="summary-panel">
-              <div className="summary-row">
-                <span>Default</span>
-                <strong>{defaultProviderConfig?.name || settings.defaultProvider}</strong>
-              </div>
-              <div className="summary-row">
-                <span>Providers</span>
-                <strong>{configuredCount}/{providers.length}</strong>
-              </div>
-              <div className="summary-row">
-                <span>Storage</span>
-                <strong>{settings.sessionOnly ? 'Session' : 'Device'}</strong>
-              </div>
-            </section>
-
             <section className="setting-card">
               <div className="setting-heading">
                 <ShieldCheck size={17} />
@@ -500,7 +551,7 @@ export const OptionsPage: React.FC = () => {
                     checked={!settings.sessionOnly}
                     onChange={() => setSettings(prev => ({ ...prev, sessionOnly: false }))}
                   />
-                  <span>Remember device</span>
+                  <span>Remember on this browser profile</span>
                 </label>
               </div>
             </section>
@@ -626,8 +677,11 @@ export const OptionsPage: React.FC = () => {
                 const modelPresets = getProviderModelPresets(providerId);
 
                 return (
-                  <article key={providerId} className={`provider-card ${isReady ? 'is-ready' : ''}`}>
-                    <div className="provider-topline">
+                  <details
+                    key={providerId}
+                    className={`provider-card ${isReady ? 'is-ready' : ''}`}
+                  >
+                    <summary className="provider-topline">
                       <div className="provider-title">
                         <span className="provider-icon">
                           <ProviderIcon size={18} />
@@ -640,8 +694,9 @@ export const OptionsPage: React.FC = () => {
                       <span className={`provider-ready ${isReady ? 'active' : ''}`}>
                         {isReady ? <CheckCircle2 size={16} /> : <Circle size={16} />}
                         {isReady ? 'Ready' : 'Needs key'}
+                        <ChevronDown className="provider-disclosure" size={14} />
                       </span>
-                    </div>
+                    </summary>
 
                     <div className="provider-fields">
                       {config.authType !== 'none' && (
@@ -792,7 +847,7 @@ export const OptionsPage: React.FC = () => {
                         </button>
                       </div>
                     )}
-                  </article>
+                  </details>
                 );
               })}
             </div>

@@ -37,16 +37,20 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: store-release-${{ inputs.release_tag || github.ref }}-${{ inputs.target }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     environment: extension-stores
-    env:
-      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -58,7 +62,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox
 
       - name: Validate release tag version
         run: npm run release:version:tag-check
@@ -91,7 +95,9 @@ jobs:
           FIREFOX_AMO_APPROVAL_TIMEOUT_MS: ${{ inputs.firefox_approval_timeout_ms }}
         run: |
           node tools/assert-store-env.js firefox
-          node tools/publish-firefox-amo.js --channel "$FIREFOX_AMO_CHANNEL" --approval-timeout "$FIREFOX_AMO_APPROVAL_TIMEOUT_MS"
+          SOURCE_CODE="$(find artifacts -maxdepth 1 -name 'aid-source-*.zip' -print -quit)"
+          test -n "$SOURCE_CODE"
+          node tools/publish-firefox-amo.js --channel "$FIREFOX_AMO_CHANNEL" --approval-timeout "$FIREFOX_AMO_APPROVAL_TIMEOUT_MS" --upload-source-code "$SOURCE_CODE"
 
       - name: Upload store release outputs
         uses: actions/upload-artifact@v4
@@ -99,5 +105,6 @@ jobs:
           name: aid-store-release-${{ github.run_number }}
           path: |
             artifacts/*.zip
+            artifacts/SHA256SUMS-*.txt
             artifacts/firefox-signed/*
           if-no-files-found: ignore

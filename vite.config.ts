@@ -2,6 +2,7 @@ import react from '@vitejs/plugin-react';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'fs';
 import { resolve } from 'path';
 import { build as viteBuild, defineConfig } from 'vite';
+import { disablePageAgentScriptExecution } from './tools/disable-page-agent-script-execution.js';
 
 const alias = {
   '@': resolve(__dirname, 'src'),
@@ -60,6 +61,7 @@ const buildStandaloneContentScript = async (
 ) => {
   await viteBuild({
     configFile: false,
+    plugins: [disablePageAgentScriptExecution()],
     build: {
       outDir: 'dist',
       emptyOutDir: false,
@@ -90,6 +92,7 @@ export default defineConfig(() => {
   return {
     plugins: [
       react(),
+      disablePageAgentScriptExecution(),
       {
         name: 'copy-extension-files',
         async writeBundle() {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Aid",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Cross-browser extension that docks a ChatGPT-style side panel with interchangeable LLM backends",
   "browser_specific_settings": {
     "gecko": {
@@ -41,6 +41,7 @@
   "sidebar_action": {
     "default_title": "Aid",
     "default_panel": "sidepanel.html",
+    "open_at_install": false,
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",

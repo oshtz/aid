@@ -26,10 +26,6 @@ if (mismatches.length) {
 }
 
 const currentTag = () => {
-  if (process.env.RELEASE_TAG) return process.env.RELEASE_TAG;
-  if (process.env.GITHUB_REF?.startsWith('refs/tags/')) return process.env.GITHUB_REF.slice('refs/tags/'.length);
-  if (process.env.GITHUB_REF_NAME) return process.env.GITHUB_REF_NAME;
-
   try {
     return execFileSync('git', ['describe', '--tags', '--exact-match'], {
       encoding: 'utf8',

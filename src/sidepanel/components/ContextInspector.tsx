@@ -14,6 +14,7 @@ interface ContextInspectorProps {
   isOpen: boolean;
   isRefreshing?: boolean;
   disabled?: boolean;
+  emptyMessage?: string;
   onRefresh: () => void;
   onToggleAttached: (isAttached: boolean) => void;
   onToggleOpen: () => void;
@@ -27,6 +28,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
   isOpen,
   isRefreshing = false,
   disabled = false,
+  emptyMessage,
   onRefresh,
   onToggleAttached,
   onToggleOpen,
@@ -87,7 +89,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
             </span>
             <small>Redacted preview</small>
           </div>
-          <pre>{previewText || 'No readable page context is available.'}</pre>
+          <pre>{previewText || emptyMessage || 'No readable page context is available.'}</pre>
         </div>
       )}
     </section>

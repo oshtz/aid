@@ -9,6 +9,8 @@ import type {
   StorageUsage,
   ChatRequest
 } from './types';
+import { sanitizeAgentReceipts } from './agent-receipts';
+import { sanitizePinnedContexts } from './pinned-context';
 import { DEFAULT_ACCENT_COLOR, normalizeAccentColor } from './accent';
 
 interface LegacyTabChatHistory {
@@ -282,15 +284,28 @@ export class ChatHistoryManager {
     const transaction = db.transaction([IndexedDBManager.CONVERSATIONS_STORE], 'readwrite');
     const store = transaction.objectStore(IndexedDBManager.CONVERSATIONS_STORE);
 
+    const agentReceipts = sanitizeAgentReceipts(conversation.agentReceipts);
+    const pinnedContexts = sanitizePinnedContexts(conversation.metadata.pinnedContexts);
+    const safeConversation: ChatConversation = {
+      ...conversation,
+      ...(agentReceipts.length > 0 ? { agentReceipts } : {}),
+      metadata: {
+        ...conversation.metadata,
+        ...(pinnedContexts.length > 0 ? { pinnedContexts } : {}),
+      },
+    };
+    if (agentReceipts.length === 0) delete safeConversation.agentReceipts;
+    if (pinnedContexts.length === 0) delete safeConversation.metadata.pinnedContexts;
+
     // Update timestamps
     const now = Date.now();
-    conversation.updatedAt = now;
-    if (!conversation.createdAt) {
-      conversation.createdAt = now;
+    safeConversation.updatedAt = now;
+    if (!safeConversation.createdAt) {
+      safeConversation.createdAt = now;
     }
 
     return new Promise((resolve, reject) => {
-      const request = store.put(conversation);
+      const request = store.put(safeConversation);
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve();
     });

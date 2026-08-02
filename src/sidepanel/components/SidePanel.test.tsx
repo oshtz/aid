@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildSavedConversation } from '@/sidepanel/conversation';
 import type { ChatConversation, ChatMessage } from '@/shared/types';
@@ -49,6 +51,26 @@ describe('buildSavedConversation', () => {
       conversationId: 'conv-1',
       existingConversation,
       messages: [userMessage, assistantMessage],
+      agentReceipts: [{
+        runId: 'agent-1',
+        taskMessageId: userMessage.id,
+        pageUrl: 'https://example.com/release',
+        pageTitle: 'Release page',
+        startedAt: 150,
+        completedAt: 180,
+        status: 'completed',
+        tokenUsage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 },
+        steps: [],
+      }],
+      pinnedContexts: [{
+        id: 'pin-1',
+        capturedAt: 140,
+        context: {
+          title: 'Pinned release page',
+          url: 'https://example.com/pinned',
+          abstract: 'Pinned release context.',
+        },
+      }],
       provider: 'openai',
       model: 'gpt-4.1',
       context: [{
@@ -67,9 +89,62 @@ describe('buildSavedConversation', () => {
     expect(saved.tags).toEqual(['release', 'pinned']);
     expect(saved.isPinned).toBe(true);
     expect(saved.messages).toHaveLength(2);
+    expect(saved.agentReceipts).toHaveLength(1);
+    expect(saved.metadata.pinnedContexts).toHaveLength(1);
     expect(saved.metadata.provider).toBe('openai');
     expect(saved.metadata.model).toBe('gpt-4.1');
     expect(saved.metadata.messageCount).toBe(2);
     expect(saved.metadata.tags).toEqual(['release', 'pinned']);
+  });
+});
+
+describe('SidePanel browser lifecycle', () => {
+  const source = readFileSync(resolve(process.cwd(), 'src/sidepanel/components/SidePanel.tsx'), 'utf8');
+
+  it('keeps Firefox permission requests inside the original user gesture', () => {
+    const disclosureHandler = source.slice(
+      source.indexOf('const acceptDataDisclosure'),
+      source.indexOf('useEffect(() => {', source.indexOf('const acceptDataDisclosure'))
+    );
+    const grantHandler = source.slice(
+      source.indexOf('const requestPageAccessAndRefresh'),
+      source.indexOf('const hasSelectedText')
+    );
+    const agentHandler = source.slice(
+      source.indexOf('const handleAgentTask'),
+      source.indexOf('const handleSendMessage')
+    );
+
+    const beforeGrantRequest = grantHandler.slice(0, grantHandler.indexOf('const permissionRequest'));
+    expect(beforeGrantRequest).not.toContain('await ');
+    expect(grantHandler).toContain('ensureAllPagePermissions()');
+    expect(grantHandler).toContain('ensureOriginPermission(origin)');
+    expect(grantHandler).not.toContain('getActiveTabContextResult');
+    expect(disclosureHandler.indexOf('ensureAllPagePermissions()')).toBeLessThan(
+      disclosureHandler.indexOf("type: 'UPDATE_SETTINGS'")
+    );
+    expect(agentHandler.indexOf('ensureOriginPermissions(')).toBeLessThan(
+      agentHandler.indexOf('MessageHandler.getActiveTabContextResult(')
+    );
+    expect(agentHandler.match(/ensureOriginPermissions\(/g)).toHaveLength(1);
+  });
+
+  it('filters broadcast chat events and refreshes context from browser events instead of polling', () => {
+    expect(source).toContain('message.requestId !== activeRequestIdRef.current');
+    expect(source).toContain('browser.tabs.onActivated.addListener');
+    expect(source).toContain('browser.permissions?.onAdded?.addListener(refresh)');
+    expect(source).toContain("isRequestingPageAccess ? 'Waiting for browser'");
+    expect(source).not.toContain('setInterval(');
+  });
+
+  it('uses structured permission diagnostics across browsers', () => {
+    expect(source).toContain('content.permissionRequired === true');
+    expect(source).not.toContain('/missing host permission/i');
+  });
+
+  it('opens settings inside the side panel', () => {
+    expect(source).toContain("setShowSettings(true)");
+    expect(source).toContain("browser.runtime.getURL('options/index.html')");
+    expect(source).not.toContain('browser.runtime.openOptionsPage()');
   });
 });

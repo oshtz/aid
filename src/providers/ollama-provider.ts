@@ -2,6 +2,7 @@ import { BaseProvider, type StreamingResponse } from './base-provider';
 import type { ChatMessage, ChatDelta, ProviderAuth } from '@/shared/types';
 import { isLikelyVisionModel } from '@/shared/provider-ux';
 import { toOpenAIContent, type OpenAIContentPart } from './message-content';
+import { getLocalProviderBaseUrl } from './openai-compatible';
 
 interface OllamaMessage {
   role: 'user' | 'assistant' | 'system';
@@ -79,9 +80,7 @@ interface OllamaModelsResponse {
 
 export class OllamaProvider extends BaseProvider {
   constructor(auth: ProviderAuth) {
-    const host = auth.host || 'localhost:11434';
-    const baseUrl = (host.startsWith('http') ? host : `http://${host}`).replace(/\/+$/, '');
-    super(auth, baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`);
+    super(auth, getLocalProviderBaseUrl('ollama', auth));
   }
 
   async sendChat(

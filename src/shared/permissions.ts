@@ -1,6 +1,7 @@
 import browser from 'webextension-polyfill';
 
 const HTTP_SCHEMES = new Set(['http:', 'https:']);
+export const ALL_PAGE_PERMISSION_ORIGINS = ['https://*/*', 'http://*/*'] as const;
 
 export const toOriginPermissionPattern = (input: string): string | null => {
   const trimmed = input.trim();
@@ -20,16 +21,27 @@ export const toOriginPermissionPattern = (input: string): string | null => {
   }
 };
 
-export const ensureOriginPermission = async (input: string): Promise<boolean> => {
-  const origin = toOriginPermissionPattern(input);
-  if (!origin || !browser.permissions?.contains || !browser.permissions?.request) {
-    return true;
+const requestOriginPermissions = async (origins: string[]): Promise<boolean> => {
+  if (origins.length === 0 || !browser.permissions?.request) {
+    return false;
   }
 
-  const hasPermission = await browser.permissions.contains({ origins: [origin] });
-  if (hasPermission) {
-    return true;
-  }
-
-  return browser.permissions.request({ origins: [origin] });
+  const granted = await browser.permissions.request({ origins });
+  return granted && browser.permissions.contains
+    ? browser.permissions.contains({ origins })
+    : granted;
 };
+
+export const ensureOriginPermissions = (inputs: string[]): Promise<boolean> => {
+  const origins = [...new Set(inputs
+    .map(toOriginPermissionPattern)
+    .filter((origin): origin is string => origin !== null))];
+
+  return requestOriginPermissions(origins);
+};
+
+export const ensureOriginPermission = (input: string): Promise<boolean> =>
+  ensureOriginPermissions([input]);
+
+export const ensureAllPagePermissions = (): Promise<boolean> =>
+  requestOriginPermissions([...ALL_PAGE_PERMISSION_ORIGINS]);

@@ -2,6 +2,8 @@ import type {
   ChatConversation,
   ChatMessage,
   ConversationMetadata,
+  AgentRunReceipt,
+  PinnedPageContext,
   ProviderId,
   TabContext,
 } from '@/shared/types';
@@ -10,6 +12,8 @@ export const buildSavedConversation = (options: {
   conversationId: string;
   existingConversation?: ChatConversation | null;
   messages: ChatMessage[];
+  agentReceipts: AgentRunReceipt[];
+  pinnedContexts: PinnedPageContext[];
   provider: ProviderId;
   model: string;
   context: TabContext[];
@@ -19,6 +23,8 @@ export const buildSavedConversation = (options: {
     conversationId,
     existingConversation,
     messages,
+    agentReceipts,
+    pinnedContexts,
     provider,
     model,
     context,
@@ -36,6 +42,7 @@ export const buildSavedConversation = (options: {
     provider,
     model,
     context,
+    ...(pinnedContexts.length > 0 ? { pinnedContexts } : {}),
     messageCount: messages.length,
     tokenUsage: {
       promptTokens: Math.floor(totalTokens * 0.7),
@@ -54,6 +61,7 @@ export const buildSavedConversation = (options: {
     ...(existingConversation?.userTitle ? { userTitle: existingConversation.userTitle } : {}),
     tags,
     messages,
+    ...(agentReceipts.length > 0 ? { agentReceipts } : {}),
     metadata,
     createdAt: existingConversation?.createdAt || now,
     updatedAt: now,

@@ -183,6 +183,110 @@ test.describe('Aid extension browser E2E', () => {
     expect(latestUserMessage).not.toContain('Ray Wang');
   });
 
+  test('persists pinned page snapshots, sends them after live context, and removes them', async () => {
+    const { fixturePage, panelPage } = await openPreparedPanel(aid, fixtureServer);
+    const prompt = 'Compare the live report with the pinned timeline';
+
+    await panelPage.getByRole('button', { name: 'Open context' }).click();
+    await expect(panelPage.locator('.live-context-card')).toContainText('Home / X');
+    await fixturePage.locator('[data-testid="tweet"] p').first().evaluate((paragraph) => {
+      paragraph.textContent = 'Fresh same-page snapshot marker after the panel opened.';
+    });
+    await panelPage.getByRole('button', { name: 'Pin page' }).click();
+    await expect(panelPage.locator('.pinned-context-card')).toContainText('Home / X');
+    await panelPage.locator('.floating-panel').getByRole('button', { name: 'Close panel' }).click();
+
+    await fixturePage.goto(`${fixtureServer.origin}/research-page.html`);
+    await expect(fixturePage.getByRole('heading', { name: 'Quarterly Browser Automation Report' })).toBeVisible();
+    await panelPage.bringToFront();
+    await askAid(panelPage, prompt);
+
+    const combinedRequest = await providerServer.waitForChatRequestAt(0);
+    const combinedMessage = getLatestUserMessageContent(combinedRequest);
+    expect(combinedMessage).toContain('Cite relevant sources as [1], [2]');
+    expect(combinedMessage).toContain('[1] Page source');
+    expect(combinedMessage).toContain('[2] Page source');
+    expect(combinedMessage).toContain('Quarterly Browser Automation Report');
+    expect(combinedMessage).toContain('Ray Wang');
+    expect(combinedMessage).toContain('Fresh same-page snapshot marker after the panel opened.');
+    expect(combinedMessage.indexOf('Quarterly Browser Automation Report'))
+      .toBeLessThan(combinedMessage.indexOf('Ray Wang'));
+    await waitForAidResponse(panelPage);
+
+    const readStoredPinCount = () => panelPage.evaluate(async (conversationPrompt) => {
+      const databases = await indexedDB.databases();
+      if (!databases.some((database) => database.name === 'AidExtension')) return null;
+      return new Promise<number | null>((resolveStored) => {
+        const openRequest = indexedDB.open('AidExtension');
+        openRequest.onerror = () => resolveStored(null);
+        openRequest.onsuccess = () => {
+          const database = openRequest.result;
+          if (!database.objectStoreNames.contains('conversations')) {
+            database.close();
+            resolveStored(null);
+            return;
+          }
+          const request = database.transaction('conversations', 'readonly').objectStore('conversations').getAll();
+          request.onerror = () => resolveStored(null);
+          request.onsuccess = () => {
+            database.close();
+            const conversation = request.result.find((item) => item.messages?.some(
+              (message: { content?: string }) => message.content === conversationPrompt
+            ));
+            resolveStored(conversation ? conversation.metadata?.pinnedContexts?.length || 0 : null);
+          };
+        };
+      });
+    }, prompt);
+    await expect.poll(readStoredPinCount, { timeout: 10_000 }).toBe(1);
+
+    await panelPage.reload();
+    await expect(panelPage.locator('.chat-input')).toBeEnabled({ timeout: 15_000 });
+    await panelPage.getByRole('button', { name: 'Open chat history' }).click();
+    const savedConversation = panelPage.locator('.conversation-item').filter({
+      hasText: prompt,
+    }).first();
+    await expect(savedConversation).toBeVisible({ timeout: 15_000 });
+    await savedConversation.click();
+
+    await panelPage.getByRole('button', { name: 'Open context' }).click();
+    const restoredPin = panelPage.locator('.pinned-context-card').filter({ hasText: 'Home / X' });
+    await expect(restoredPin).toBeVisible();
+    await panelPage.locator('.floating-panel').getByRole('button', { name: 'Close panel' }).click();
+
+    await panelPage.getByRole('button', { name: 'Tools' }).click();
+    await panelPage.getByRole('button', { name: 'Key points' }).click();
+    const quickActionRequest = await providerServer.waitForChatRequestAt(1);
+    const quickActionMessage = getLatestUserMessageContent(quickActionRequest);
+    expect(quickActionMessage).toContain('Quarterly Browser Automation Report');
+    expect(quickActionMessage).not.toContain('Ray Wang');
+    expect(quickActionMessage).not.toContain('[2] Page source');
+    await waitForAidResponse(panelPage);
+
+    await panelPage.getByRole('button', { name: 'Open context' }).click();
+    await panelPage.locator('.pinned-context-card').filter({ hasText: 'Home / X' })
+      .getByRole('button', { name: 'Remove pin' }).click();
+    await expect(panelPage.locator('.pinned-context-card')).toHaveCount(0);
+    await expect.poll(readStoredPinCount, { timeout: 10_000 }).toBe(0);
+    await panelPage.locator('.floating-panel').getByRole('button', { name: 'Close panel' }).click();
+
+    await panelPage.reload();
+    await expect(panelPage.locator('.chat-input')).toBeEnabled({ timeout: 15_000 });
+    await panelPage.getByRole('button', { name: 'Open chat history' }).click();
+    await expect(savedConversation).toBeVisible({ timeout: 15_000 });
+    await savedConversation.click();
+    await panelPage.getByRole('button', { name: 'Open context' }).click();
+    await expect(panelPage.locator('.pinned-context-card')).toHaveCount(0);
+    await panelPage.locator('.floating-panel').getByRole('button', { name: 'Close panel' }).click();
+
+    await askAid(panelPage, 'Use only the live report now');
+    const unpinnedRequest = await providerServer.waitForChatRequestAt(2);
+    const unpinnedMessage = getLatestUserMessageContent(unpinnedRequest);
+    expect(unpinnedMessage).toContain('Quarterly Browser Automation Report');
+    expect(unpinnedMessage).not.toContain('Ray Wang');
+    expect(unpinnedMessage).not.toContain('[2] Page source');
+  });
+
   test('sends attached images as provider image content parts', async () => {
     const { panelPage } = await openPreparedPanel(aid, fixtureServer);
     const pixelPng = Buffer.from(
@@ -581,7 +685,7 @@ test.describe('Aid extension browser E2E', () => {
       'main'
     );
 
-    await panelPage.getByRole('button', { name: 'Summarize page' }).click();
+    await panelPage.getByRole('button', { name: 'Summarize this page' }).click();
 
     const providerRequest = await providerServer.waitForChatRequestAt(0);
     const latestUserMessage = getLatestUserMessageContent(providerRequest);

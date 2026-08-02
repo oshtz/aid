@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import type { AgentActivity } from '@page-agent/core';
 import {
   Bot,
   CheckCircle2,
@@ -13,12 +14,15 @@ import {
   Languages,
   ListChecks,
   Menu,
+  MousePointerClick,
   PanelRightOpen,
   PenLine,
+  Pin,
   Plus,
   RefreshCw,
   SendHorizontal,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   Wand2,
@@ -31,8 +35,28 @@ import { MessageHandler } from '@/shared/message-handler';
 import { ProviderFactory } from '@/providers/provider-factory';
 import { ChatHistoryManager } from '@/shared/storage';
 import { AID_ACCENT_STORAGE_KEY, applyAccentColorToDocument, resolveAccentColor } from '@/shared/accent';
-import { ensureOriginPermission, toOriginPermissionPattern } from '@/shared/permissions';
+import {
+  ensureAllPagePermissions,
+  ensureOriginPermission,
+  ensureOriginPermissions,
+  toOriginPermissionPattern,
+} from '@/shared/permissions';
 import { buildSavedConversation } from '@/sidepanel/conversation';
+import { AidAgentRun, describeAgentActivity } from '@/sidepanel/agent-runtime';
+import { sanitizeAgentReceipts } from '@/shared/agent-receipts';
+import { hasReadableTabContext } from '@/shared/chat-context';
+import {
+  MAX_PINNED_CONTEXTS,
+  sanitizePinnedContexts,
+  upsertPinnedContext,
+} from '@/shared/pinned-context';
+import { sanitizePageUrl } from '@/shared/page-context-safety';
+import {
+  getAgentProviderConnection,
+  isAgentProviderId,
+  type AgentActionAssessment,
+  type AgentNavigationAssessment,
+} from '@/shared/agent';
 import {
   getFriendlyProviderError,
   getProviderModelPresets,
@@ -43,9 +67,16 @@ import {
 import { ChatHistoryPanel } from './ChatHistoryPanel';
 import { ContextInspector } from './ContextInspector';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { ProviderActivation } from './ProviderActivation';
+import { DataDisclosure, type PageAccessChoice } from '@/shared/DataDisclosure';
+import {
+  DATA_DISCLOSURE_VERSION,
+  hasAcceptedDataDisclosure,
+} from '@/shared/disclosure';
 import type {
   ProviderAuthMap,
   ProviderId,
+  PanelMode,
   ExtensionSettings,
   ChatMessage,
   ChatImageAttachment,
@@ -53,8 +84,11 @@ import type {
   TabContext,
   ChatRequest,
   ChatConversation,
+  AgentRunReceipt,
+  PinnedPageContext,
   ContextLookupDiagnostics,
   ContextDiagnosticsTab,
+  ExtensionMessage,
 } from '@/shared/types';
 
 const AID_THEME_STORAGE_KEY = 'aid-theme';
@@ -196,8 +230,14 @@ const formatContextDiagnostics = (diagnostics?: ContextLookupDiagnostics): strin
   const selected = diagnostics.selectedTabIds.join(', ');
   const content = diagnostics.content[0];
 
+  if (content?.permissionRequired) {
+    return `Resolved tab ${selected}, but Aid needs permission to read this website.`;
+  }
+
   if (content?.error) {
-    return `Resolved tab ${selected}, but context read failed: ${content.error}`;
+    return content.permissionRequired === false
+      ? `Resolved tab ${selected}, but the browser blocked page context even though site access is granted. This page may be protected.`
+      : `Resolved tab ${selected}, but context read failed: ${content.error}`;
   }
 
   if (content?.fallback) {
@@ -235,6 +275,10 @@ const getContextTabCandidates = (diagnostics?: ContextLookupDiagnostics): Contex
 
 const contextReadFailed = (diagnostics?: ContextLookupDiagnostics): boolean => (
   diagnostics?.content.some((content) => content.fallback || content.error || content.pingOk === false) || false
+);
+
+const contextNeedsHostPermission = (diagnostics?: ContextLookupDiagnostics): boolean => (
+  diagnostics?.content.some((content) => content.permissionRequired === true) || false
 );
 
 const hasUsableTabContext = (
@@ -365,6 +409,8 @@ const buildProviderMessages = (messages: ChatMessage[]): ChatMessage[] => {
 export const SidePanel: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [authMap, setAuthMap] = useState<ProviderAuthMap>({});
+  const [extensionSettings, setExtensionSettings] = useState<ExtensionSettings | null>(null);
+  const [isAcceptingDisclosure, setIsAcceptingDisclosure] = useState(false);
   const [currentProvider, setCurrentProvider] = useState<ProviderId>('openai');
   const [currentModel, setCurrentModel] = useState<string>('');
   const [defaultModels, setDefaultModels] = useState<Partial<Record<ProviderId, string>>>({});
@@ -380,23 +426,51 @@ export const SidePanel: React.FC = () => {
   const [currentContext, setCurrentContext] = useState<TabContext[]>([]);
   const [contextStatus, setContextStatus] = useState<ContextStatus>(defaultContextStatus);
   const [contextDiagnostics, setContextDiagnostics] = useState<ContextLookupDiagnostics | undefined>();
+  const [isRequestingPageAccess, setIsRequestingPageAccess] = useState(false);
   const [contextAttachEnabled, setContextAttachEnabled] = useState(true);
   const [showContextInspector, setShowContextInspector] = useState(false);
   const [isRefreshingContext, setIsRefreshingContext] = useState(false);
   const [pendingImages, setPendingImages] = useState<ChatImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | undefined>();
+  const [panelMode, setPanelMode] = useState<PanelMode>('chat');
+  const [activeAgentRunId, setActiveAgentRunId] = useState<string | undefined>();
+  const [agentStep, setAgentStep] = useState(0);
+  const [agentActivity, setAgentActivity] = useState<AgentActivity | null>(null);
+  const [pendingAgentApproval, setPendingAgentApproval] = useState<AgentActionAssessment | null>(null);
   const [showChatHistory, setShowChatHistory] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>();
   const [activePanel, setActivePanel] = useState<PanelName | null>(null);
+  const [providerConnectionIssue, setProviderConnectionIssue] = useState<ProviderId | null>(null);
+  const [agentReceipts, setAgentReceipts] = useState<AgentRunReceipt[]>([]);
+  const [pinnedContexts, setPinnedContexts] = useState<PinnedPageContext[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const activeRequestIdRef = useRef<string | undefined>(undefined);
+  const agentRunRef = useRef<AidAgentRun | null>(null);
+  const agentApprovalResolverRef = useRef<((approved: boolean) => void) | null>(null);
+  const agentReceiptsRef = useRef<AgentRunReceipt[]>([]);
 
   const logoUrl = browser.runtime.getURL('icons/icon-32.png');
+
+  const replaceAgentReceipts = useCallback((receipts: AgentRunReceipt[]) => {
+    agentReceiptsRef.current = receipts;
+    setAgentReceipts(receipts);
+  }, []);
+
+  const recordAgentReceipt = useCallback((receipt: AgentRunReceipt): AgentRunReceipt[] => {
+    const nextReceipts = [
+      ...agentReceiptsRef.current.filter((current) => current.runId !== receipt.runId),
+      receipt,
+    ].sort((left, right) => left.startedAt - right.startedAt);
+    replaceAgentReceipts(nextReceipts);
+    return nextReceipts;
+  }, [replaceAgentReceipts]);
 
   const applyAidTheme = useCallback((nextTheme: 'light' | 'dark') => {
     localStorage.setItem(AID_THEME_STORAGE_KEY, nextTheme);
@@ -421,15 +495,38 @@ export const SidePanel: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => () => {
+    agentApprovalResolverRef.current?.(false);
+    void agentRunRef.current?.stop();
+  }, []);
+
+  useEffect(() => {
+    const closeEmbeddedSettings = (event: MessageEvent) => {
+      if (event.origin === window.location.origin && event.data?.type === 'AID_CLOSE_SETTINGS') {
+        setShowSettings(false);
+      }
+    };
+
+    window.addEventListener('message', closeEmbeddedSettings);
+    return () => window.removeEventListener('message', closeEmbeddedSettings);
+  }, []);
+
   useEffect(() => {
     scrollToBottom();
   }, [chatState.messages]);
 
   useEffect(() => {
-    if (currentProvider && !isLoading) {
+    if (
+      currentProvider &&
+      !isLoading &&
+      defaultModels[currentProvider]?.trim() &&
+      hasAcceptedDataDisclosure(extensionSettings || undefined)
+    ) {
       loadModelsForProvider(currentProvider, defaultModels[currentProvider]);
     }
-  }, [currentProvider, isLoading, defaultModels]);
+    // All state read by loadModelsForProvider is listed here; the helper is intentionally render-local.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authMap, currentProvider, isLoading, defaultModels, extensionSettings]);
 
   const openPanel = (panel: PanelName) => {
     setActivePanel((current) => (current === panel ? null : panel));
@@ -480,13 +577,23 @@ export const SidePanel: React.FC = () => {
       const nextDefaultProvider = response.settings?.defaultProvider as ProviderId | undefined;
       const nextDefaultModels = response.settings?.defaultModels || {};
 
+      setExtensionSettings(response.settings || null);
       applyAidTheme(resolveAidTheme(response.settings?.theme));
       applyAidAccent(resolveAccentColor(response.settings));
       setAuthMap(nextAuthMap);
       setDefaultModels(nextDefaultModels);
       setCurrentProvider(resolveActiveProvider(nextDefaultProvider, nextAuthMap));
 
-      await updateCurrentContext();
+      if (hasAcceptedDataDisclosure(response.settings)) {
+        await updateCurrentContext();
+      } else {
+        setCurrentContext([]);
+        setContextStatus({
+          state: 'empty',
+          message: 'Data disclosure required',
+          detail: 'Accept the disclosure before Aid reads the active page.',
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to initialize');
     } finally {
@@ -495,16 +602,26 @@ export const SidePanel: React.FC = () => {
   };
 
   const setupMessageListeners = () => {
-    const listener = (message: { type?: string; payload?: unknown }) => {
+    const listener = (message: ExtensionMessage) => {
+      const isChatEvent = message.type === 'CHAT_DELTA'
+        || message.type === 'CHAT_ERROR'
+        || message.type === 'CHAT_CANCELLED';
+      if (isChatEvent && (!message.requestId || message.requestId !== activeRequestIdRef.current)) {
+        return;
+      }
+
       switch (message.type) {
         case 'CHAT_DELTA':
           handleChatDelta(message.payload as ChatDelta);
           break;
         case 'CHAT_ERROR':
-          handleChatError(message.payload as { error: string; requestId?: string });
+          handleChatError({
+            ...(message.payload as { error: string }),
+            requestId: message.requestId as string,
+          });
           break;
         case 'CHAT_CANCELLED':
-          handleChatCancelled(message.payload as { requestId?: string });
+          handleChatCancelled({ requestId: message.requestId as string });
           break;
         case 'OPEN_SIDE_PANEL_WITH_SELECTION':
           handleSelectionAction(message.payload as { selection: string; context: TabContext });
@@ -515,6 +632,7 @@ export const SidePanel: React.FC = () => {
           const nextDefaultProvider = snapshot.settings?.defaultProvider as ProviderId | undefined;
           const nextDefaultModels = snapshot.settings?.defaultModels || {};
 
+          setExtensionSettings(snapshot.settings || null);
           applyAidTheme(resolveAidTheme(snapshot.settings?.theme));
           applyAidAccent(resolveAccentColor(snapshot.settings));
           setAuthMap(nextAuthMap);
@@ -550,10 +668,6 @@ export const SidePanel: React.FC = () => {
 
   const updateCurrentContext = useCallback(async () => {
     try {
-      if (currentContext.length === 0) {
-        setContextStatus(defaultContextStatus);
-      }
-
       const result = await MessageHandler.getActiveTabContextResult();
       const context = result.context;
       setContextDiagnostics(result.diagnostics);
@@ -569,9 +683,9 @@ export const SidePanel: React.FC = () => {
 
       setCurrentContext([]);
       setContextStatus({
-        state: 'empty',
-        message: 'Page context unavailable',
-        detail: formatContextDiagnostics(result.diagnostics),
+        state: result.error ? 'error' : 'empty',
+        message: result.error ? 'Page context failed' : 'Page context unavailable',
+        detail: result.error || formatContextDiagnostics(result.diagnostics),
       });
     } catch (error) {
       console.warn('Failed to get current context:', error);
@@ -583,7 +697,47 @@ export const SidePanel: React.FC = () => {
       });
       setContextDiagnostics(undefined);
     }
-  }, [currentContext.length]);
+  }, []);
+
+  const acceptDataDisclosure = async (pageAccess: PageAccessChoice): Promise<boolean> => {
+    if (!extensionSettings) return false;
+    setIsAcceptingDisclosure(true);
+
+    try {
+      if (pageAccess === 'all-sites' && !await ensureAllPagePermissions()) {
+        return false;
+      }
+
+      const nextSettings = {
+        ...extensionSettings,
+        dataDisclosureVersion: DATA_DISCLOSURE_VERSION,
+      };
+      const response = await browser.runtime.sendMessage({
+        type: 'UPDATE_SETTINGS',
+        payload: { settings: { dataDisclosureVersion: DATA_DISCLOSURE_VERSION } },
+      });
+      if (response?.error) throw new Error(response.error);
+
+      await updateCurrentContext();
+      setExtensionSettings(nextSettings);
+      return true;
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to save disclosure choice.');
+      return false;
+    } finally {
+      setIsAcceptingDisclosure(false);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      !isLoading &&
+      hasAcceptedDataDisclosure(extensionSettings || undefined) &&
+      contextStatus.message === 'Data disclosure required'
+    ) {
+      void updateCurrentContext();
+    }
+  }, [contextStatus.message, extensionSettings, isLoading, updateCurrentContext]);
 
   const loadContextForTab = async (tabId: number) => {
     try {
@@ -607,9 +761,9 @@ export const SidePanel: React.FC = () => {
 
       setCurrentContext([]);
       setContextStatus({
-        state: 'empty',
-        message: 'Selected tab unavailable',
-        detail: formatContextDiagnostics(result.diagnostics),
+        state: result.error ? 'error' : 'empty',
+        message: result.error ? 'Selected tab failed' : 'Selected tab unavailable',
+        detail: result.error || formatContextDiagnostics(result.diagnostics),
       });
     } catch (error) {
       console.warn('Failed to load selected tab context:', error);
@@ -622,40 +776,43 @@ export const SidePanel: React.FC = () => {
     }
   };
 
-  const requestPageAccessAndRefresh = async () => {
+  const requestPageAccessAndRefresh = async (pageAccess: PageAccessChoice = 'per-site') => {
+    setIsRequestingPageAccess(true);
     try {
+      const allowAllSites = pageAccess === 'all-sites';
       setContextStatus({
         state: 'checking',
-        message: 'Requesting site access',
+        message: allowAllSites ? 'Requesting website access' : 'Requesting site access',
       });
 
-      let diagnostics = contextDiagnostics;
-
-      if (!diagnostics) {
-        const result = await MessageHandler.getActiveTabContextResult();
-        diagnostics = result.diagnostics;
-        setContextDiagnostics(result.diagnostics);
-      }
-
-      const origin = getContextPermissionOrigin(diagnostics);
-      if (!origin) {
+      const origin = allowAllSites ? null : getContextPermissionOrigin(contextDiagnostics);
+      if (!allowAllSites && !origin) {
         setCurrentContext([]);
         setContextStatus({
           state: 'empty',
           message: 'No grantable page found',
-          detail: 'Open an http or https tab, then try again.',
+          detail: contextDiagnostics
+            ? 'Open an http or https tab, then try again.'
+            : 'Refresh page context, then click Grant site access again.',
         });
         return;
       }
 
-      const granted = await ensureOriginPermission(origin);
+      const permissionRequest = allowAllSites
+        ? ensureAllPagePermissions()
+        : origin
+          ? ensureOriginPermission(origin)
+          : Promise.resolve(false);
+      const granted = await permissionRequest;
 
       if (!granted) {
         setCurrentContext([]);
         setContextStatus({
           state: 'empty',
           message: 'Page context blocked',
-          detail: `Aid has not been granted access to ${origin.replace('/*', '')}.`,
+          detail: allowAllSites
+            ? 'Aid has not been granted access to normal websites. You can still allow only this site.'
+            : `Aid has not been granted access to ${origin?.replace('/*', '') || 'this website'}.`,
         });
         return;
       }
@@ -669,16 +826,48 @@ export const SidePanel: React.FC = () => {
         message: 'Site access request failed',
         detail: error instanceof Error ? error.message : 'The browser rejected the permission request.',
       });
+    } finally {
+      setIsRequestingPageAccess(false);
     }
   };
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      void updateCurrentContext();
-    }, 1000);
+    const refresh = () => {
+      if (hasAcceptedDataDisclosure(extensionSettings || undefined) && !agentRunRef.current) {
+        setCurrentContext([]);
+        setContextDiagnostics(undefined);
+        void updateCurrentContext();
+      }
+    };
+    const handleUpdated = (
+      _tabId: number,
+      changeInfo: browser.Tabs.OnUpdatedChangeInfoType,
+      tab: browser.Tabs.Tab
+    ) => {
+      if (tab.active && (changeInfo.status === 'complete' || Boolean(changeInfo.url))) {
+        refresh();
+      }
+    };
+    const handleWindowFocus = (windowId: number) => {
+      if (windowId !== browser.windows.WINDOW_ID_NONE) {
+        refresh();
+      }
+    };
 
-    return () => clearInterval(interval);
-  }, [updateCurrentContext]);
+    browser.tabs.onActivated.addListener(refresh);
+    browser.tabs.onUpdated.addListener(handleUpdated);
+    browser.windows.onFocusChanged.addListener(handleWindowFocus);
+    browser.permissions?.onAdded?.addListener(refresh);
+    browser.permissions?.onRemoved?.addListener(refresh);
+
+    return () => {
+      browser.tabs.onActivated.removeListener(refresh);
+      browser.tabs.onUpdated.removeListener(handleUpdated);
+      browser.windows.onFocusChanged.removeListener(handleWindowFocus);
+      browser.permissions?.onAdded?.removeListener(refresh);
+      browser.permissions?.onRemoved?.removeListener(refresh);
+    };
+  }, [updateCurrentContext, extensionSettings]);
 
   const hasSelectedText = () => {
     return currentContext.length > 0 &&
@@ -689,28 +878,43 @@ export const SidePanel: React.FC = () => {
   const loadModelsForProvider = async (providerId: ProviderId, preferredModel?: string) => {
     setLoadingModels(true);
     try {
+      const config = ProviderFactory.getProviderConfig(providerId);
+      const auth = authMap[providerId] || (config?.authType === 'none'
+        ? { kind: 'none' as const, host: config.endpoint }
+        : undefined);
+      if (!auth) {
+        setAvailableModels([]);
+        setCurrentModel(preferredModel || '');
+        setModelSearch(preferredModel || '');
+        if (preferredModel) setProviderConnectionIssue(providerId);
+        return;
+      }
+
       const response = await browser.runtime.sendMessage({
-        type: 'GET_PROVIDER_MODELS',
-        payload: { providerId },
+        type: 'TEST_PROVIDER',
+        payload: { providerId, auth },
       });
 
-      if (response.error) {
+      if (response.error || !response.success) {
         console.warn(`Failed to load models for ${providerId}:`, response.error);
         setAvailableModels([]);
         setCurrentModel(preferredModel || '');
         setModelSearch(preferredModel || '');
+        if (preferredModel) setProviderConnectionIssue(providerId);
       } else {
         const models = response.models || [];
         const nextModel = preferredModel || pickRecommendedModel(providerId, models) || '';
         setAvailableModels(models);
         setCurrentModel(nextModel);
         setModelSearch(nextModel);
+        setProviderConnectionIssue((current) => current === providerId ? null : current);
       }
     } catch (error) {
       console.warn(`Failed to load models for ${providerId}:`, error);
       setAvailableModels([]);
       setCurrentModel(preferredModel || '');
       setModelSearch(preferredModel || '');
+      if (preferredModel) setProviderConnectionIssue(providerId);
     } finally {
       setLoadingModels(false);
     }
@@ -723,6 +927,7 @@ export const SidePanel: React.FC = () => {
     }
 
     setCurrentProvider(providerId);
+    setProviderConnectionIssue(null);
     await loadModelsForProvider(providerId, defaultModels[providerId]);
   };
 
@@ -787,11 +992,14 @@ export const SidePanel: React.FC = () => {
   };
 
   const handleChatError = (payload: { error: string; requestId?: string }) => {
+    if (payload.requestId && payload.requestId !== activeRequestIdRef.current) {
+      return;
+    }
+
     const friendlyError = getFriendlyProviderError(payload.error);
 
-    setActiveRequestId((current) => (
-      !payload.requestId || current === payload.requestId ? undefined : current
-    ));
+    activeRequestIdRef.current = undefined;
+    setActiveRequestId(undefined);
     setChatState((prev) => {
       const messages = [...prev.messages];
       const lastMessage = messages[messages.length - 1] as MessageWithStatus;
@@ -818,9 +1026,12 @@ export const SidePanel: React.FC = () => {
   };
 
   const handleChatCancelled = (payload: { requestId?: string }) => {
-    setActiveRequestId((current) => (
-      !payload.requestId || current === payload.requestId ? undefined : current
-    ));
+    if (payload.requestId && payload.requestId !== activeRequestIdRef.current) {
+      return;
+    }
+
+    activeRequestIdRef.current = undefined;
+    setActiveRequestId(undefined);
     setChatState((prev) => {
       const nextState: ChatState = {
         ...prev,
@@ -902,9 +1113,9 @@ export const SidePanel: React.FC = () => {
 
       setCurrentContext([]);
       setContextStatus({
-        state: 'empty',
-        message: 'Page context unavailable',
-        detail: formatContextDiagnostics(result.diagnostics),
+        state: result.error ? 'error' : 'empty',
+        message: result.error ? 'Page context failed' : 'Page context unavailable',
+        detail: result.error || formatContextDiagnostics(result.diagnostics),
       });
       return [];
     } catch (error) {
@@ -916,7 +1127,7 @@ export const SidePanel: React.FC = () => {
   const sendChatRequest = async (
     messages: ChatMessage[],
     context: TabContext[],
-    options: { refreshContext?: boolean; attachContext?: boolean } = {}
+    options: { refreshContext?: boolean; attachContext?: boolean; includePinnedContext?: boolean } = {}
   ) => {
     if (!currentModel.trim()) {
       handleChatError({ error: 'Select or enter a model before sending.' });
@@ -945,11 +1156,17 @@ export const SidePanel: React.FC = () => {
     }
 
     const shouldAttachContext = options.attachContext ?? true;
-    const requestContext = shouldAttachContext
-      ? options.refreshContext ? await refreshContextForSend() : context
+    const liveRequestContext = shouldAttachContext
+      ? options.refreshContext ? await refreshContextForSend() : context.slice(0, 1)
       : [];
+    const requestContext = shouldAttachContext ? [
+      ...liveRequestContext,
+      ...(options.includePinnedContext
+        ? pinnedContexts.map((pin): TabContext => ({ ...pin.context, source: 'pinned' }))
+        : []),
+    ] : [];
 
-    const requestId = `chat_${Date.now()}`;
+    const requestId = `chat_${crypto.randomUUID()}`;
     const request: ChatRequest = {
       id: requestId,
       providerId: currentProvider,
@@ -959,6 +1176,7 @@ export const SidePanel: React.FC = () => {
     };
 
     try {
+      activeRequestIdRef.current = requestId;
       setActiveRequestId(requestId);
       if (!browser.runtime?.id) {
         throw new Error('Extension context invalidated - please reload the extension');
@@ -1006,13 +1224,22 @@ export const SidePanel: React.FC = () => {
         return { ...prev, messages };
       });
     } catch (error) {
-      handleChatError({ error: error instanceof Error ? error.message : 'Failed to send chat request' });
+      handleChatError({
+        error: error instanceof Error ? error.message : 'Failed to send chat request',
+        requestId,
+      });
     } finally {
-      setActiveRequestId((current) => (current === requestId ? undefined : current));
+      if (activeRequestIdRef.current === requestId) {
+        activeRequestIdRef.current = undefined;
+        setActiveRequestId(undefined);
+      }
     }
   };
 
-  const autoSaveConversation = useCallback(async () => {
+  const autoSaveConversation = useCallback(async (
+    receiptsOverride?: AgentRunReceipt[],
+    pinnedContextsOverride?: PinnedPageContext[]
+  ) => {
     if (chatState.messages.length === 0) return;
 
     try {
@@ -1024,6 +1251,8 @@ export const SidePanel: React.FC = () => {
         conversationId,
         existingConversation,
         messages: chatState.messages,
+        agentReceipts: receiptsOverride || agentReceipts,
+        pinnedContexts: pinnedContextsOverride ?? pinnedContexts,
         provider: currentProvider,
         model: currentModel,
         context: currentContext,
@@ -1037,7 +1266,7 @@ export const SidePanel: React.FC = () => {
     } catch (error) {
       console.error('Failed to auto-save conversation:', error);
     }
-  }, [chatState.messages, currentConversationId, currentProvider, currentModel, currentContext]);
+  }, [chatState.messages, currentConversationId, currentProvider, currentModel, currentContext, agentReceipts, pinnedContexts]);
 
   useEffect(() => {
     if (autoSaveTimeoutRef.current) {
@@ -1070,10 +1299,13 @@ export const SidePanel: React.FC = () => {
       setCurrentConversationId(conversation.id);
       setCurrentProvider(conversation.metadata.provider as ProviderId);
       setCurrentModel(conversation.metadata.model);
-      setCurrentContext(conversation.metadata.context);
+      setCurrentContext([]);
+      setPinnedContexts(sanitizePinnedContexts(conversation.metadata.pinnedContexts));
+      replaceAgentReceipts(sanitizeAgentReceipts(conversation.agentReceipts));
       setPendingImages([]);
       setAttachmentError(null);
       setShowChatHistory(false);
+      await updateCurrentContext();
 
       await ChatHistoryManager.updateConversation(conversation.id, {
         isActive: true,
@@ -1082,12 +1314,178 @@ export const SidePanel: React.FC = () => {
     } catch (error) {
       console.error('Failed to load conversation:', error);
     }
-  }, [chatState.messages, currentConversationId, autoSaveConversation]);
+  }, [chatState.messages, currentConversationId, autoSaveConversation, replaceAgentReceipts, updateCurrentContext]);
+
+  const requestAgentApproval = (assessment: AgentActionAssessment): Promise<boolean> => {
+    agentApprovalResolverRef.current?.(false);
+    setPendingAgentApproval(assessment);
+
+    return new Promise((resolve) => {
+      agentApprovalResolverRef.current = resolve;
+    });
+  };
+
+  const resolveAgentApproval = async (approved: boolean) => {
+    if (
+      approved &&
+      pendingAgentApproval?.action === 'navigate' &&
+      !(pendingAgentApproval as AgentNavigationAssessment).sameOrigin
+    ) {
+      try {
+        approved = await ensureOriginPermission(
+          (pendingAgentApproval as AgentNavigationAssessment).targetUrl
+        );
+      } catch {
+        approved = false;
+      }
+    }
+    const resolve = agentApprovalResolverRef.current;
+    agentApprovalResolverRef.current = null;
+    setPendingAgentApproval(null);
+    resolve?.(approved);
+  };
+
+  const handleAgentTask = async () => {
+    const task = inputValue.trim();
+    if (!task || chatState.isLoading || !isAgentProviderId(currentProvider)) {
+      return;
+    }
+
+    const auth = authMap[currentProvider] || { kind: 'none' as const };
+    let userMessageQueued = false;
+    let run: AidAgentRun | null = null;
+
+    try {
+      const connection = getAgentProviderConnection(currentProvider, auth);
+      const pagePermissionTarget = getContextPermissionOrigin(contextDiagnostics)
+        || currentContext[0]?.url;
+      if (!pagePermissionTarget) {
+        throw new Error('Refresh page context before starting Agent mode.');
+      }
+
+      const access = await ensureOriginPermissions([
+        pagePermissionTarget,
+        connection.baseURL,
+      ]);
+      if (!access) {
+        throw new Error('Agent mode needs access to the active page and selected provider.');
+      }
+
+      const contextResult = await MessageHandler.getActiveTabContextResult();
+      if (contextResult.error) {
+        throw new Error(contextResult.error);
+      }
+      const tabId = contextResult.diagnostics?.selectedTabIds[0];
+      if (tabId === undefined) {
+        throw new Error('Open an http or https page before starting Agent mode.');
+      }
+
+      const tab = await browser.tabs.get(tabId);
+      if (!tab.url || !/^https?:\/\//i.test(tab.url)) {
+        throw new Error('Agent mode only works on http or https pages.');
+      }
+
+      await MessageHandler.getTabContextForTab(tabId);
+
+      const userMessage: MessageWithStatus = {
+        id: `user_${Date.now()}`,
+        role: 'user',
+        content: task,
+        timestamp: Date.now(),
+        status: 'sent',
+      };
+
+      setInputValue('');
+      setPendingImages([]);
+      setAttachmentError(null);
+      setAgentStep(0);
+      setAgentActivity({ type: 'thinking' });
+      setChatState((previous) => {
+        const nextState: ChatState = {
+          ...previous,
+          messages: [...previous.messages, userMessage],
+          isLoading: true,
+        };
+        delete nextState.error;
+        return nextState;
+      });
+      userMessageQueued = true;
+
+      run = new AidAgentRun({
+        tabId,
+        initialUrl: tab.url,
+        initialTitle: tab.title || contextResult.context?.title || 'Untitled page',
+        taskMessageId: userMessage.id,
+        providerId: currentProvider,
+        auth,
+        model: currentModel,
+        onActivity: setAgentActivity,
+        onStep: setAgentStep,
+        onApproval: requestAgentApproval,
+        onInterrupted: () => resolveAgentApproval(false),
+      });
+      agentRunRef.current = run;
+      setActiveAgentRunId(run.id);
+
+      const result = await run.execute(task);
+      if (agentRunRef.current !== run) {
+        return;
+      }
+
+      const assistantMessage: ChatMessage = {
+        id: `assistant_${Date.now()}`,
+        role: 'assistant',
+        content: result.data || (result.success
+          ? 'The task is complete.'
+          : 'The agent could not complete the task.'),
+        timestamp: Date.now(),
+      };
+      setChatState((previous) => ({
+        ...previous,
+        messages: [...previous.messages, assistantMessage],
+        isLoading: false,
+      }));
+      recordAgentReceipt(run.createReceipt(result.success ? 'completed' : 'failed'));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Agent mode failed.';
+      if (run && agentRunRef.current !== run) return;
+      if (run) recordAgentReceipt(run.createReceipt(run.wasInterrupted ? 'stopped' : 'failed'));
+      if (userMessageQueued) {
+        handleChatError({ error: errorMessage });
+      } else {
+        setChatState((previous) => ({
+          ...previous,
+          isLoading: false,
+          error: getFriendlyProviderError(errorMessage),
+        }));
+      }
+    } finally {
+      agentApprovalResolverRef.current?.(false);
+      agentApprovalResolverRef.current = null;
+      setPendingAgentApproval(null);
+      setAgentActivity(null);
+      setActiveAgentRunId(undefined);
+      if (!run || agentRunRef.current === run) agentRunRef.current = null;
+    }
+  };
 
   const handleNewChat = useCallback(async () => {
     try {
+      agentApprovalResolverRef.current?.(false);
+      agentApprovalResolverRef.current = null;
+      const activeRun = agentRunRef.current;
+      agentRunRef.current = null;
+      let stoppedReceipts: AgentRunReceipt[] | undefined;
+      if (activeRun) {
+        await activeRun.stop();
+        stoppedReceipts = recordAgentReceipt(activeRun.createReceipt('stopped'));
+      }
+      setActiveAgentRunId(undefined);
+      setPendingAgentApproval(null);
+      setAgentActivity(null);
+
       if (chatState.messages.length > 0 && currentConversationId) {
-        await autoSaveConversation();
+        await autoSaveConversation(stoppedReceipts);
         await ChatHistoryManager.updateConversation(currentConversationId, {
           isActive: false,
         });
@@ -1099,6 +1497,8 @@ export const SidePanel: React.FC = () => {
       });
 
       setCurrentConversationId(undefined);
+      replaceAgentReceipts([]);
+      setPinnedContexts([]);
       setPendingImages([]);
       setAttachmentError(null);
       setShowChatHistory(false);
@@ -1106,7 +1506,7 @@ export const SidePanel: React.FC = () => {
     } catch (error) {
       console.error('Failed to start new chat:', error);
     }
-  }, [chatState.messages, currentConversationId, autoSaveConversation]);
+  }, [chatState.messages, currentConversationId, autoSaveConversation, recordAgentReceipt, replaceAgentReceipts]);
 
   const handleImageFilesSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
@@ -1142,6 +1542,11 @@ export const SidePanel: React.FC = () => {
   };
 
   const handleSendMessage = async () => {
+    if (panelMode === 'agent') {
+      await handleAgentTask();
+      return;
+    }
+
     const content = inputValue.trim();
     if ((!content && pendingImages.length === 0) || chatState.isLoading) return;
     if (pendingImages.length > 0 && !providerSupportsImageInput(currentProvider, currentModel)) {
@@ -1163,10 +1568,23 @@ export const SidePanel: React.FC = () => {
     await sendChatRequest([userMessage], currentContext, {
       refreshContext: contextAttachEnabled,
       attachContext: contextAttachEnabled,
+      includePinnedContext: true,
     });
   };
 
   const handleStopGenerating = async () => {
+    const agentRun = agentRunRef.current;
+    if (agentRun) {
+      agentRunRef.current = null;
+      resolveAgentApproval(false);
+      await agentRun.stop();
+      recordAgentReceipt(agentRun.createReceipt('stopped'));
+      setActiveAgentRunId(undefined);
+      setAgentActivity(null);
+      setChatState((previous) => ({ ...previous, isLoading: false }));
+      return;
+    }
+
     const requestId = activeRequestId;
     if (!requestId) {
       return;
@@ -1203,6 +1621,7 @@ export const SidePanel: React.FC = () => {
     ], currentContext, {
       refreshContext: contextAttachEnabled,
       attachContext: contextAttachEnabled,
+      includePinnedContext: true,
     });
   };
 
@@ -1219,7 +1638,7 @@ export const SidePanel: React.FC = () => {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage();
+      void handleSendMessage();
     }
   };
 
@@ -1303,7 +1722,54 @@ export const SidePanel: React.FC = () => {
   const openSettings = () => {
     closePanel();
     setShowChatHistory(false);
-    void browser.runtime.openOptionsPage();
+    setShowSettings(true);
+  };
+
+  const handlePinCurrentPage = async () => {
+    const [context] = await refreshContextForSend();
+    if (!hasReadableTabContext(context)) return;
+    const nextPinnedContexts = upsertPinnedContext(
+      pinnedContexts,
+      context,
+      Date.now(),
+      `pin_${crypto.randomUUID()}`
+    );
+    if (nextPinnedContexts === pinnedContexts) return;
+    setPinnedContexts(nextPinnedContexts);
+    if (currentConversationId) void autoSaveConversation(undefined, nextPinnedContexts);
+  };
+
+  const handleRemovePinnedContext = (id: string) => {
+    const nextPinnedContexts = pinnedContexts.filter((pin) => pin.id !== id);
+    setPinnedContexts(nextPinnedContexts);
+    if (currentConversationId) void autoSaveConversation(undefined, nextPinnedContexts);
+  };
+
+  const handleProviderConnected = async (
+    providerId: Extract<ProviderId, 'openrouter' | 'ollama'>,
+    auth: ProviderAuthMap[string],
+    model: string
+  ) => {
+    setAuthMap((current) => ({ ...current, [providerId]: auth }));
+    setDefaultModels((current) => ({ ...current, [providerId]: model }));
+    setCurrentProvider(providerId);
+    setCurrentModel(model);
+    setModelSearch(model);
+    setProviderConnectionIssue(null);
+    await updateCurrentContext();
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const handlePanelModeChange = (mode: PanelMode) => {
+    if (chatState.isLoading || mode === panelMode) {
+      return;
+    }
+    setPanelMode(mode);
+    if (mode === 'agent') {
+      setPendingImages([]);
+      setAttachmentError(null);
+      setShowContextInspector(false);
+    }
   };
 
   const renderMessageStatus = (message: MessageWithStatus) => {
@@ -1325,8 +1791,32 @@ export const SidePanel: React.FC = () => {
     return isProviderConfigured(currentProvider, authMap);
   })();
 
+  const usableProvider = providerOptions.find(({ id }) => (
+    Boolean(defaultModels[id]?.trim()) && isProviderConfigured(id, authMap)
+  ));
+  const savedProvider = extensionSettings?.defaultProvider as ProviderId | undefined;
+  const savedModel = savedProvider ? defaultModels[savedProvider] : undefined;
+  const reconnectProvider = providerConnectionIssue || (
+    savedProvider && savedModel && !isProviderConfigured(savedProvider, authMap)
+      ? savedProvider
+      : null
+  );
+  const reconnectModel = reconnectProvider ? defaultModels[reconnectProvider] : undefined;
+  const reconnectAuth = reconnectProvider ? authMap[reconnectProvider] : undefined;
+  const reconnectHost = reconnectAuth?.kind === 'none' ? reconnectAuth.host : undefined;
+  const needsReconnect = Boolean(reconnectProvider && reconnectModel);
+
   const currentProviderConfig = ProviderFactory.getProviderConfig(currentProvider);
   const currentPage = currentContext[0];
+  const attachedContexts = [
+    ...currentContext.slice(0, 1),
+    ...pinnedContexts.map((pin): TabContext => ({ ...pin.context, source: 'pinned' })),
+  ];
+  const currentPageUrl = sanitizePageUrl(currentPage?.url);
+  const currentPagePin = currentPageUrl
+    ? pinnedContexts.find((pin) => pin.context.url === currentPageUrl)
+    : undefined;
+  const pinLimitReached = pinnedContexts.length >= MAX_PINNED_CONTEXTS && !currentPagePin;
   const normalizedModelSearch = modelSearch.trim().toLowerCase();
   const filteredModels = normalizedModelSearch
     ? availableModels.filter((model) => model.toLowerCase().includes(normalizedModelSearch))
@@ -1335,16 +1825,30 @@ export const SidePanel: React.FC = () => {
   const selectedText = currentPage?.selection?.trim();
   const contextLabel = selectedText
     ? 'Selection attached'
-    : currentPage?.title
+    : pinnedContexts.length > 0
+      ? `${attachedContexts.length} ${attachedContexts.length === 1 ? 'page' : 'pages'} attached`
+      : currentPage?.title
       ? 'Page context ready'
       : 'No page context';
-  const canRegenerate = !chatState.isLoading && chatState.messages.some((message) => message.role === 'user');
-  const canAttachImages = providerSupportsImageInput(currentProvider, currentModel);
+  const agentProviderSupported = isAgentProviderId(currentProvider);
+  const canRegenerate = panelMode === 'chat' && !chatState.isLoading && chatState.messages.some((message) => message.role === 'user');
+  const canAttachImages = panelMode === 'chat' && providerSupportsImageInput(currentProvider, currentModel);
   const canSendMessage = Boolean(
-    (inputValue.trim() || (pendingImages.length > 0 && canAttachImages)) &&
+    (panelMode === 'agent'
+      ? inputValue.trim() && agentProviderSupported
+      : inputValue.trim() || (pendingImages.length > 0 && canAttachImages)) &&
     hasAuth &&
     currentModel
   );
+  const inputPlaceholder = !hasAuth
+    ? 'Connect a provider first'
+    : !currentModel
+      ? 'Select a model first'
+      : panelMode === 'agent'
+        ? agentProviderSupported
+          ? 'Tell Aid what to do on this page...'
+          : 'Agent mode supports OpenAI-compatible providers'
+        : 'Ask about this page...';
   const providerModelPresets = getProviderModelPresets(currentProvider);
   const suggestedModel = providerModelPresets[0];
   const shouldShowImageModelWarning = Boolean(
@@ -1353,10 +1857,41 @@ export const SidePanel: React.FC = () => {
     currentModel.trim() &&
     !isLikelyVisionModel(currentProvider, currentModel)
   );
-  const isContextUnavailable = currentContext.length === 0 &&
-    (contextStatus.state === 'empty' || contextStatus.state === 'error');
+  const needsHostPermission = contextNeedsHostPermission(contextDiagnostics);
+  const isContextUnavailable = attachedContexts.length === 0 &&
+    (contextStatus.state === 'empty' || contextStatus.state === 'error' || isRequestingPageAccess);
 
   const renderEmptyState = () => {
+    if (needsReconnect && reconnectProvider) {
+      return (
+        <div className="chat-empty activation-empty reconnect-empty">
+          <ProviderActivation
+            defaultModels={defaultModels}
+            reconnectProvider={reconnectProvider}
+            savedModel={reconnectModel}
+            savedHost={reconnectHost}
+            pagePermissionTarget={getContextPermissionOrigin(contextDiagnostics) || currentContext[0]?.url}
+            compact
+            onConnected={(providerId, auth, model) => void handleProviderConnected(providerId, auth, model)}
+            onOpenOptions={openSettings}
+          />
+        </div>
+      );
+    }
+
+    if (!usableProvider) {
+      return (
+        <div className="chat-empty activation-empty">
+          <ProviderActivation
+            defaultModels={defaultModels}
+            pagePermissionTarget={getContextPermissionOrigin(contextDiagnostics) || currentContext[0]?.url}
+            onConnected={(providerId, auth, model) => void handleProviderConnected(providerId, auth, model)}
+            onOpenOptions={openSettings}
+          />
+        </div>
+      );
+    }
+
     if (!hasAuth) {
       return (
         <div className="chat-empty">
@@ -1371,6 +1906,26 @@ export const SidePanel: React.FC = () => {
             </button>
             <button className="ghost-action" onClick={() => openPanel('provider')}>
               Change provider
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (panelMode === 'agent' && !agentProviderSupported) {
+      return (
+        <div className="chat-empty">
+          <div className="empty-mark">
+            <MousePointerClick size={24} />
+          </div>
+          <h2>Choose an agent provider</h2>
+          <p>Agent mode supports OpenAI, OpenRouter, Ollama, and LM Studio models with tool calling.</p>
+          <div className="empty-actions">
+            <button className="primary-action" onClick={() => openPanel('provider')}>
+              Change provider
+            </button>
+            <button className="ghost-action" onClick={() => handlePanelModeChange('chat')}>
+              Return to chat
             </button>
           </div>
         </div>
@@ -1411,14 +1966,50 @@ export const SidePanel: React.FC = () => {
           <h2>Page context unavailable</h2>
           <p>{contextStatus.detail || 'Aid can still answer without page context.'}</p>
           <div className="empty-actions">
-            <button className="primary-action" onClick={() => void updateCurrentContext()}>
-              Refresh
-            </button>
-            <button className="ghost-action" onClick={() => void requestPageAccessAndRefresh()}>
-              Grant site access
-            </button>
+            {needsHostPermission ? (
+              <>
+                <button
+                  className="primary-action"
+                  onClick={() => void requestPageAccessAndRefresh('all-sites')}
+                  disabled={isRequestingPageAccess}
+                >
+                  {isRequestingPageAccess ? 'Waiting for browser' : 'Allow on all websites'}
+                </button>
+                <button
+                  className="ghost-action"
+                  onClick={() => void requestPageAccessAndRefresh('per-site')}
+                  disabled={isRequestingPageAccess}
+                >
+                  Allow this website
+                </button>
+              </>
+            ) : (
+              <button className="primary-action" onClick={() => void updateCurrentContext()}>
+                Refresh
+              </button>
+            )}
             <button className="ghost-action" onClick={() => inputRef.current?.focus()}>
               Ask anyway
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (panelMode === 'agent') {
+      return (
+        <div className="chat-empty">
+          <div className="empty-mark">
+            <MousePointerClick size={24} />
+          </div>
+          <h2>Operate this page</h2>
+          <p>Aid can inspect, scroll, type, click, and follow same-tab links. Cross-site navigation asks first; sensitive fields, new tabs, and tab switching remain blocked.</p>
+          <div className="prompt-chips">
+            <button onClick={() => setInputValue('Open the filters and select the most relevant option')}>
+              Adjust a filter
+            </button>
+            <button onClick={() => setInputValue('Fill the visible form fields using the information I provide')}>
+              Fill a form
             </button>
           </div>
         </div>
@@ -1437,7 +2028,7 @@ export const SidePanel: React.FC = () => {
         <p>Ask a question, use the current selection, or open tools for a focused writing action.</p>
         <div className="prompt-chips">
           <button onClick={() => handleQuickAction('summarize')}>
-            Summarize page
+            Summarize this page
           </button>
           <button onClick={() => openPanel('context')}>
             View context
@@ -1536,18 +2127,29 @@ export const SidePanel: React.FC = () => {
         <aside className="floating-panel" aria-label="Current context">
           <PanelHeader title="Context" onClose={closePanel} icon={ClipboardList} />
           <div className="context-panel">
-            {currentContext.length > 0 ? (
-              currentContext.map((ctx, index) => (
-                <div key={index} className="context-card">
-                  <div className="context-card-title">{ctx.title || 'Untitled page'}</div>
-                  <div className="context-card-url">{ctx.url}</div>
-                  {ctx.selection && (
-                    <blockquote>
-                      {ctx.selection.length > 260 ? `${ctx.selection.substring(0, 260)}...` : ctx.selection}
-                    </blockquote>
-                  )}
+            {currentPage ? (
+              <div className="context-card live-context-card">
+                <div className="context-card-head">
+                  <span className="context-card-badge">Live</span>
+                  <button
+                    type="button"
+                    className="context-card-action"
+                    onClick={() => void handlePinCurrentPage()}
+                    disabled={pinLimitReached}
+                    title={pinLimitReached ? `Remove a pinned page before adding another (max ${MAX_PINNED_CONTEXTS}).` : undefined}
+                  >
+                    <Pin size={12} />
+                    {currentPagePin ? 'Repin page' : 'Pin page'}
+                  </button>
                 </div>
-              ))
+                <div className="context-card-title">{currentPage.title || 'Untitled page'}</div>
+                <div className="context-card-url">{currentPage.url}</div>
+                {currentPage.selection && (
+                  <blockquote>
+                    {currentPage.selection.length > 260 ? `${currentPage.selection.substring(0, 260)}...` : currentPage.selection}
+                  </blockquote>
+                )}
+              </div>
             ) : (
               <div className="panel-empty context-empty" aria-live="polite">
                 <Globe2 size={20} />
@@ -1570,22 +2172,52 @@ export const SidePanel: React.FC = () => {
                 )}
                 <button
                   type="button"
-                  className="secondary-action context-refresh"
-                  onClick={() => void updateCurrentContext()}
-                  disabled={contextStatus.state === 'checking'}
+                  className={needsHostPermission ? 'primary-action context-refresh' : 'secondary-action context-refresh'}
+                  onClick={() => void (needsHostPermission
+                    ? requestPageAccessAndRefresh('all-sites')
+                    : updateCurrentContext())}
+                  disabled={isRequestingPageAccess || contextStatus.state === 'checking'}
                 >
-                  <RefreshCw size={14} />
-                  Refresh
+                  {needsHostPermission ? <KeyRound size={14} /> : <RefreshCw size={14} />}
+                  {isRequestingPageAccess ? 'Waiting for browser' : needsHostPermission ? 'Allow on all websites' : 'Refresh'}
                 </button>
-                <button
-                  type="button"
-                  className="secondary-action context-refresh"
-                  onClick={() => void requestPageAccessAndRefresh()}
-                  disabled={contextStatus.state === 'checking'}
-                >
-                  <KeyRound size={14} />
-                  Grant site access
-                </button>
+                {needsHostPermission && (
+                  <button
+                    type="button"
+                    className="secondary-action context-refresh"
+                    onClick={() => void requestPageAccessAndRefresh('per-site')}
+                    disabled={isRequestingPageAccess || contextStatus.state === 'checking'}
+                  >
+                    <KeyRound size={14} />
+                    Allow this website
+                  </button>
+                )}
+              </div>
+            )}
+            {pinnedContexts.length > 0 && (
+              <div className="pinned-contexts" aria-label="Pinned page snapshots">
+                <div className="context-section-head">
+                  <strong>Pinned snapshots</strong>
+                  <small>{pinnedContexts.length}/{MAX_PINNED_CONTEXTS}</small>
+                </div>
+                {pinnedContexts.map((pin) => (
+                  <div key={pin.id} className="context-card pinned-context-card">
+                    <div className="context-card-head">
+                      <span className="context-card-badge">Snapshot</span>
+                      <button
+                        type="button"
+                        className="context-card-action"
+                        onClick={() => handleRemovePinnedContext(pin.id)}
+                      >
+                        <X size={12} />
+                        Remove pin
+                      </button>
+                    </div>
+                    <div className="context-card-title">{pin.context.title || 'Untitled page'}</div>
+                    <div className="context-card-url">{pin.context.url}</div>
+                    <small className="context-captured-at">Captured {new Date(pin.capturedAt).toLocaleString()}</small>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -1732,6 +2364,24 @@ export const SidePanel: React.FC = () => {
     );
   }
 
+  if (!hasAcceptedDataDisclosure(extensionSettings || undefined)) {
+    return (
+      <div className="disclosure-screen">
+        <DataDisclosure onAccept={acceptDataDisclosure} isSaving={isAcceptingDisclosure} />
+      </div>
+    );
+  }
+
+  if (showSettings) {
+    return (
+      <iframe
+        className="embedded-settings-view"
+        src={`${browser.runtime.getURL('options/index.html')}?embedded=1`}
+        title="Aid settings"
+      />
+    );
+  }
+
   return (
     <div className="aid-shell">
       <div className="ambient-layer" aria-hidden="true" />
@@ -1800,36 +2450,78 @@ export const SidePanel: React.FC = () => {
             renderEmptyState()
           ) : (
             <>
+              {needsReconnect && reconnectProvider && (
+                <div className="inline-reconnect">
+                  <ProviderActivation
+                    defaultModels={defaultModels}
+                    reconnectProvider={reconnectProvider}
+                    savedModel={reconnectModel}
+                    savedHost={reconnectHost}
+                    pagePermissionTarget={getContextPermissionOrigin(contextDiagnostics) || currentContext[0]?.url}
+                    compact
+                    onConnected={(providerId, auth, model) => void handleProviderConnected(providerId, auth, model)}
+                    onOpenOptions={openSettings}
+                  />
+                </div>
+              )}
               {chatState.messages.map((message) => {
                 const messageWithStatus = message as MessageWithStatus;
+                const messageReceipts = agentReceipts.filter((receipt) => receipt.taskMessageId === message.id);
 
                 return (
-                  <article
-                    key={message.id}
-                    className={`message ${message.role === 'user' ? 'user-message' : 'assistant-message'}`}
-                  >
-                    <div className="message-meta">
-                      <span>{message.role === 'user' ? 'You' : 'Aid'}</span>
-                      <time>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
-                    </div>
-                    <div className="message-content">
-                      <MarkdownRenderer
-                        content={message.content}
-                        isStreaming={message.role === 'assistant' && messageWithStatus.status === 'sending'}
-                      />
-                      {getMessageImageAttachments(message).length > 0 && (
-                        <div className="message-attachments">
-                          {getMessageImageAttachments(message).map((image) => (
-                            <img key={image.id} src={image.dataUrl} alt={image.name} />
-                          ))}
+                  <React.Fragment key={message.id}>
+                    <article className={`message ${message.role === 'user' ? 'user-message' : 'assistant-message'}`}>
+                      <div className="message-meta">
+                        <span>{message.role === 'user' ? 'You' : 'Aid'}</span>
+                        <time>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+                      </div>
+                      <div className="message-content">
+                        <MarkdownRenderer
+                          content={message.content}
+                          isStreaming={message.role === 'assistant' && messageWithStatus.status === 'sending'}
+                        />
+                        {getMessageImageAttachments(message).length > 0 && (
+                          <div className="message-attachments">
+                            {getMessageImageAttachments(message).map((image) => (
+                              <img key={image.id} src={image.dataUrl} alt={image.name} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {renderMessageStatus(messageWithStatus)}
+                    </article>
+                    {messageReceipts.map((receipt) => (
+                      <details key={receipt.runId} className={`agent-receipt-card status-${receipt.status}`}>
+                        <summary>
+                          <ShieldCheck size={15} />
+                          <span>Agent receipt</span>
+                          <strong>{receipt.status}</strong>
+                        </summary>
+                        <div className="agent-receipt-body">
+                          <p><strong>{receipt.pageTitle}</strong><span>{receipt.pageUrl || 'Page URL unavailable'}</span></p>
+                          <p>
+                            <time>{new Date(receipt.startedAt).toLocaleString()}</time>
+                            <span>{receipt.tokenUsage.totalTokens} tokens · {receipt.steps.length} steps</span>
+                          </p>
+                          {receipt.steps.length > 0 && (
+                            <ol>
+                              {receipt.steps.map((step, index) => (
+                                <li key={`${receipt.runId}_${index}`}>
+                                  <strong>{step.tool.replaceAll('_', ' ')}</strong>
+                                  <span>{step.targetLabel}</span>
+                                  <small>{step.outcome} · {step.approvalState.replaceAll('_', ' ')} · {step.durationMs} ms</small>
+                                  {step.failure && <small className="agent-receipt-failure">{step.failure}</small>}
+                                </li>
+                              ))}
+                            </ol>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    {renderMessageStatus(messageWithStatus)}
-                  </article>
+                      </details>
+                    ))}
+                  </React.Fragment>
                 );
               })}
-              {chatState.isLoading && (
+              {chatState.isLoading && panelMode === 'chat' && (
                 <article className="message assistant-message">
                   <div className="message-meta">
                     <span>Aid</span>
@@ -1841,6 +2533,15 @@ export const SidePanel: React.FC = () => {
                   </div>
                 </article>
               )}
+              {activeAgentRunId && (
+                <article className="agent-run-card" role="status" aria-live="polite">
+                  <span className="agent-run-icon"><MousePointerClick size={16} /></span>
+                  <div>
+                    <strong>{describeAgentActivity(agentActivity)}</strong>
+                    <small>Step {Math.max(agentStep, 1)} of 12 · controlled tab</small>
+                  </div>
+                </article>
+              )}
               <div ref={messagesEndRef} />
             </>
           )}
@@ -1848,35 +2549,67 @@ export const SidePanel: React.FC = () => {
       </main>
 
       <footer className="composer-zone">
-        <div className="composer-tools">
-          <button onClick={() => openPanel('tools')}>
-            <Wand2 size={14} />
-            Tools
+        <div className="mode-switch" aria-label="Aid mode">
+          <button
+            type="button"
+            className={panelMode === 'chat' ? 'active' : ''}
+            onClick={() => handlePanelModeChange('chat')}
+            disabled={chatState.isLoading}
+          >
+            <Bot size={13} />
+            Chat
           </button>
           <button
-            onClick={() => openPanel('context')}
-            className={`context-tool ${selectedText ? 'is-attached' : ''}`}
+            type="button"
+            className={panelMode === 'agent' ? 'active' : ''}
+            onClick={() => handlePanelModeChange('agent')}
+            disabled={chatState.isLoading}
           >
-            <PanelRightOpen size={14} />
-            {contextLabel}
+            <MousePointerClick size={13} />
+            Agent <span>Beta</span>
           </button>
-          {canRegenerate && (
-            <button onClick={() => void handleRegenerateLast()}>
-              <RefreshCw size={14} />
-              Regenerate
-            </button>
-          )}
         </div>
-        <ContextInspector
-          contexts={currentContext}
-          isAttached={contextAttachEnabled}
-          isOpen={showContextInspector}
-          isRefreshing={isRefreshingContext}
-          disabled={chatState.isLoading}
-          onRefresh={() => void handleRefreshContextInspector()}
-          onToggleAttached={setContextAttachEnabled}
-          onToggleOpen={() => setShowContextInspector((current) => !current)}
-        />
+        {panelMode === 'chat' ? (
+          <>
+            <div className="composer-tools">
+              <button onClick={() => openPanel('tools')}>
+                <Wand2 size={14} />
+                Tools
+              </button>
+              <button
+                onClick={() => openPanel('context')}
+                className={`context-tool ${selectedText ? 'is-attached' : ''}`}
+              >
+                <PanelRightOpen size={14} />
+                {contextLabel}
+              </button>
+              {canRegenerate && (
+                <button onClick={() => void handleRegenerateLast()}>
+                  <RefreshCw size={14} />
+                  Regenerate
+                </button>
+              )}
+            </div>
+            <ContextInspector
+              contexts={attachedContexts}
+              isAttached={contextAttachEnabled}
+              isOpen={showContextInspector}
+              isRefreshing={isRefreshingContext}
+              disabled={chatState.isLoading}
+              emptyMessage={contextStatus.detail || contextStatus.message}
+              onRefresh={() => void handleRefreshContextInspector()}
+              onToggleAttached={setContextAttachEnabled}
+              onToggleOpen={() => setShowContextInspector((current) => !current)}
+            />
+          </>
+        ) : (
+          <div className="agent-guidance">
+            <ShieldCheck size={14} />
+            <span>{agentProviderSupported
+              ? 'Clicks and same-tab navigation run automatically; cross-site navigation asks first. Sensitive fields, new tabs, and tab switching stay blocked.'
+              : 'Use OpenAI, OpenRouter, Ollama, or LM Studio for Agent mode.'}</span>
+          </div>
+        )}
         {pendingImages.length > 0 && (
           <div className="attachment-strip">
             {pendingImages.map((image) => (
@@ -1908,6 +2641,23 @@ export const SidePanel: React.FC = () => {
             </button>
           </div>
         )}
+        {pendingAgentApproval && (
+          <div className="agent-approval" role="alertdialog" aria-label="Approve agent action">
+            <div>
+              <strong>Approve {pendingAgentApproval.action}</strong>
+              <span>{pendingAgentApproval.label}</span>
+              <small>{pendingAgentApproval.reason}</small>
+            </div>
+            <div className="agent-approval-actions">
+              <button type="button" className="ghost-action" onClick={() => void resolveAgentApproval(false)}>
+                Deny
+              </button>
+              <button type="button" className="primary-action" onClick={() => void resolveAgentApproval(true)}>
+                Approve once
+              </button>
+            </div>
+          </div>
+        )}
         <div className="composer">
           <button className="composer-icon" onClick={() => openPanel('context')} aria-label="Open context">
             <Menu size={18} />
@@ -1915,7 +2665,7 @@ export const SidePanel: React.FC = () => {
           <button
             className={`composer-icon ${pendingImages.length > 0 ? 'is-attached' : ''}`}
             onClick={() => imageInputRef.current?.click()}
-            disabled={chatState.isLoading || !hasAuth || !currentModel || !canAttachImages}
+            disabled={panelMode === 'agent' || chatState.isLoading || !hasAuth || !currentModel || !canAttachImages}
             aria-label="Attach image"
             title={canAttachImages ? 'Attach image' : 'Select a vision-capable model to attach images'}
           >
@@ -1933,19 +2683,19 @@ export const SidePanel: React.FC = () => {
           <textarea
             ref={inputRef}
             className="chat-input"
-            placeholder={hasAuth ? currentModel ? 'Ask about this page...' : 'Select a model first' : 'Connect a provider first'}
+            placeholder={inputPlaceholder}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={chatState.isLoading || !hasAuth || !currentModel}
+            disabled={chatState.isLoading || !hasAuth || !currentModel || (panelMode === 'agent' && !agentProviderSupported)}
             rows={1}
           />
           <button
             className={`send-button ${chatState.isLoading ? 'stop-button' : ''}`}
             onClick={chatState.isLoading ? handleStopGenerating : handleSendMessage}
-            disabled={chatState.isLoading ? !activeRequestId : !canSendMessage}
-            title={chatState.isLoading ? 'Stop response' : 'Send message'}
-            aria-label={chatState.isLoading ? 'Stop response' : 'Send message'}
+            disabled={chatState.isLoading ? !activeRequestId && !activeAgentRunId : !canSendMessage}
+            title={chatState.isLoading ? panelMode === 'agent' ? 'Stop agent task' : 'Stop response' : panelMode === 'agent' ? 'Start agent task' : 'Send message'}
+            aria-label={chatState.isLoading ? panelMode === 'agent' ? 'Stop agent task' : 'Stop response' : panelMode === 'agent' ? 'Start agent task' : 'Send message'}
           >
             {chatState.isLoading ? <X size={18} /> : <SendHorizontal size={18} />}
           </button>

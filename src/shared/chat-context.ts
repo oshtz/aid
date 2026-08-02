@@ -9,6 +9,8 @@ const PAGE_CONTEXT_MARKERS = [
   'selected content:',
   'selected text:',
 ];
+export const MAX_ATTACHED_CONTEXT_TOKENS = 8_000;
+const CHARS_PER_TOKEN = 4;
 
 export const hasReadableTabContext = (context: TabContext | undefined): context is TabContext => {
   if (!context) {
@@ -34,11 +36,17 @@ export const messagesAlreadyIncludePageContext = (messages: ChatMessage[]): bool
 
 export const formatPageContextForPrompt = (contexts: TabContext[]): string => {
   const readableContexts = contexts.filter(hasReadableTabContext);
+  const separatorsLength = Math.max(0, readableContexts.length - 1) * 2;
+  const sourceCharacterBudget = readableContexts.length > 0
+    ? Math.floor(((MAX_ATTACHED_CONTEXT_TOKENS * CHARS_PER_TOKEN) - separatorsLength) / readableContexts.length)
+    : 0;
 
   return readableContexts
     .map((context, index) => {
       const lines = [
-        readableContexts.length > 1 ? `Page ${index + 1}` : 'Current page',
+        readableContexts.length > 1
+          ? `[${index + 1}] Page source`
+          : context.source === 'pinned' ? 'Pinned page snapshot' : 'Current page',
         `Title: ${context.title.trim() || 'Untitled page'}`,
         `URL: ${context.url.trim() || 'Unknown URL'}`,
       ];
@@ -52,14 +60,14 @@ export const formatPageContextForPrompt = (contexts: TabContext[]): string => {
         lines.push('Page content:', context.abstract.trim());
       }
 
-      return lines.join('\n');
+      return lines.join('\n').slice(0, sourceCharacterBudget);
     })
     .join('\n\n');
 };
 
 export const estimateContextTokens = (contexts: TabContext[]): number => {
   const promptContext = formatPageContextForPrompt(contexts);
-  return Math.ceil(promptContext.length / 4);
+  return Math.ceil(promptContext.length / CHARS_PER_TOKEN);
 };
 
 export const getContextPreviewLabel = (contexts: TabContext[]): string => {
@@ -106,6 +114,11 @@ export const addPageContextToLatestUserMessage = (
   }
 
   const pageContext = formatPageContextForPrompt(readableContexts);
+  const contextInstruction = readableContexts.length > 1
+    ? 'Use the attached page sources when answering the user. Sources are ordered with the live current page first when available, followed by pinned snapshots. Cite relevant sources as [1], [2], and so on.'
+    : readableContexts[0]?.source === 'pinned'
+      ? 'Use this pinned page snapshot when answering the user. It is a saved snapshot, not necessarily the current page.'
+    : 'Use this current page context when answering the user. If the user asks about "this page", "here", or visible content, answer from this context.';
   return messages.map((message, index) => {
     if (index !== latestUserIndex) {
       return message;
@@ -114,7 +127,7 @@ export const addPageContextToLatestUserMessage = (
     return {
       ...message,
       content: [
-        'Use this current page context when answering the user. If the user asks about "this page", "here", or visible content, answer from this context.',
+        contextInstruction,
         pageContext,
         'User request:',
         message.content,

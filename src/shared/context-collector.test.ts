@@ -1578,6 +1578,21 @@ describe('ContextCollector', () => {
     expect(context.abstract).not.toContain('sk-live-visible-secret123');
   });
 
+  it('redacts the page title and strips credentials and private URL details', () => {
+    setupTimelineDocument([
+      new FakeElement('Release event keeps timeline extraction active for the first item.', makeRect(180, 120)),
+      new FakeElement('Release event keeps timeline extraction active for the second item.', makeRect(340, 120)),
+    ]);
+    document.title = 'Release sk-live-title-secret123';
+    window.location.href = 'https://name:password@example.com/account/billing?token=secret#private';
+
+    const context = ContextCollector.getCurrentTabContext({ maxTokens: 1000 });
+
+    expect(context.title).toBe('Release [redacted]');
+    expect(context.url).toBe('https://example.com/account/[private]');
+    expect(JSON.stringify(context)).not.toMatch(/(?:sk-live-title-secret123|name:password|token=secret)/);
+  });
+
   it('extracts visible live form values from inputs, checkboxes, selects, and textareas', () => {
     setupFormDocument([
       new FakeControl({

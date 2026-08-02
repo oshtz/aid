@@ -8,6 +8,7 @@ import type {
 import { StorageManager } from './storage';
 import { ProviderFactory } from '@/providers/provider-factory';
 import { normalizeAccentColor } from './accent';
+import { normalizeOpenAICompatibleBaseUrl } from '@/providers/openai-compatible';
 
 /**
  * Settings service for managing provider configurations and API keys
@@ -369,18 +370,15 @@ export class SettingsService {
     }
 
     try {
-      // Add protocol if missing
-      const normalizedHost = host.startsWith('http') ? host : `http://${host}`;
-      const url = new URL(normalizedHost);
-
-      // Validate it's a reasonable host
-      if (!url.hostname) {
-        return { valid: false, error: 'Invalid hostname' };
-      }
-
-      return { valid: true, normalized: normalizedHost };
-    } catch {
-      return { valid: false, error: 'Invalid URL format' };
+      return {
+        valid: true,
+        normalized: normalizeOpenAICompatibleBaseUrl(host, 'http://localhost:11434/v1'),
+      };
+    } catch (error) {
+      return {
+        valid: false,
+        error: error instanceof Error ? error.message : 'Invalid URL format',
+      };
     }
   }
 }

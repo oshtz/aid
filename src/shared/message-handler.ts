@@ -9,11 +9,29 @@ import type {
 export interface ActiveTabContextResult {
   context: TabContext | null;
   diagnostics?: ContextLookupDiagnostics;
+  error?: string;
 }
 
 export class MessageHandler {
   static async getActiveTabContextResult(): Promise<ActiveTabContextResult> {
-    return this.getTabContextResult({});
+    try {
+      const tabs = await browser.tabs.query({ currentWindow: true });
+      const activeTab = tabs.find((tab) => tab.active);
+      const extensionBaseUrl = browser.runtime.getURL('');
+      // ponytail: direct-tab fallback is for the dev/E2E panel; remove it when Playwright can drive real side panels.
+      const tab = activeTab?.url?.startsWith(extensionBaseUrl)
+        ? [...tabs]
+          .filter((candidate) => Boolean(candidate.url && /^https?:\/\//i.test(candidate.url)))
+          .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0]
+        : activeTab;
+      if (tab?.id === undefined) {
+        return { context: null, error: 'No active tab found in this window.' };
+      }
+
+      return this.getTabContextResult({ tabIds: [tab.id] });
+    } catch (error) {
+      return { context: null, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   static async getTabContextForTab(tabId: number): Promise<ActiveTabContextResult> {
@@ -32,10 +50,6 @@ export class MessageHandler {
       };
       const response = await browser.runtime.sendMessage(message);
 
-      if (this.isRecord(response) && typeof response.error === 'string') {
-        return { context: null };
-      }
-
       const result: ActiveTabContextResult = {
         context: this.extractFirstTabContext(response),
       };
@@ -43,10 +57,14 @@ export class MessageHandler {
       if (diagnostics) {
         result.diagnostics = diagnostics;
       }
+      if (this.isRecord(response) && typeof response.error === 'string') {
+        result.context = null;
+        result.error = response.error;
+      }
       return result;
     } catch (error) {
       console.warn('Failed to get tab context:', error);
-      return { context: null };
+      return { context: null, error: error instanceof Error ? error.message : String(error) };
     }
   }
 

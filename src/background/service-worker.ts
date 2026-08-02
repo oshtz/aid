@@ -5,6 +5,12 @@ import { SettingsService } from '@/shared/settings';
 import { QuickActions } from '@/shared/quick-actions';
 import { addPageContextToLatestUserMessage } from '@/shared/chat-context';
 import { toOriginPermissionPattern } from '@/shared/permissions';
+import {
+  DATA_DISCLOSURE_ERROR,
+  hasAcceptedDataDisclosure,
+  messageRequiresDataDisclosure,
+} from '@/shared/disclosure';
+import { getLocalProviderBaseUrl } from '@/providers/openai-compatible';
 import type { StreamingResponse } from '@/providers/base-provider';
 import type {
   ExtensionMessage,
@@ -36,11 +42,18 @@ type BrowserWithScripting = typeof browser & {
  */
 class BackgroundService {
   private settingsService: SettingsService | null = null;
-  private lastActiveTabId: number | undefined = undefined;
+  private settingsReady: Promise<void>;
   private activeChatControllers: Map<string, AbortController> = new Map();
 
   constructor() {
-    this.initialize();
+    browser.runtime.onMessage.addListener(this.handleMessage.bind(this));
+    this.setupActionClickHandler();
+    browser.runtime.onInstalled.addListener(this.handleInstall.bind(this));
+
+    this.settingsReady = this.initializeSettings();
+    void this.settingsReady.catch((error) => {
+      console.error('Failed to initialize background service:', error);
+    });
   }
 
   private async resolveModelForProvider(providerId: ProviderId): Promise<string> {
@@ -58,27 +71,8 @@ class BackgroundService {
     throw new Error(`No model discovered for provider: ${providerId}`);
   }
 
-  private async initialize() {
-    try {
-      // Initialize settings service
-      this.settingsService = await SettingsService.initialize();
-
-      // Set up message listeners
-      browser.runtime.onMessage.addListener(this.handleMessage.bind(this));
-
-      // Set up action click handler with compatibility layer
-      this.setupActionClickHandler();
-
-      // Set up installation handler
-      browser.runtime.onInstalled.addListener(this.handleInstall.bind(this));
-
-      // Set up tab removal handler for chat history cleanup
-      browser.tabs.onRemoved.addListener(this.handleTabRemoved.bind(this));
-      this.setupTabTracking();
-      await this.rememberCurrentActiveTab();
-    } catch (error) {
-      console.error('Failed to initialize background service:', error);
-    }
+  private async initializeSettings(): Promise<void> {
+    this.settingsService = await SettingsService.initialize();
   }
 
   /**
@@ -103,12 +97,17 @@ class BackgroundService {
     sender: browser.Runtime.MessageSender
   ): Promise<unknown> {
     try {
-      if (sender.tab) {
-        this.rememberContextTab(sender.tab);
-      }
+      await this.settingsReady;
 
       if (!this.settingsService) {
         throw new Error('Settings service not initialized');
+      }
+
+      if (
+        messageRequiresDataDisclosure(message.type) &&
+        !hasAcceptedDataDisclosure(this.settingsService.getSettings())
+      ) {
+        throw new Error(DATA_DISCLOSURE_ERROR);
       }
 
       switch (message.type) {
@@ -328,61 +327,6 @@ class BackgroundService {
       : error instanceof Error && error.name === 'AbortError';
   }
 
-  private async handleTabRemoved(tabId: number) {
-    try {
-      if (this.lastActiveTabId === tabId) {
-        this.lastActiveTabId = undefined;
-        await this.rememberCurrentActiveTab();
-      }
-    } catch (error) {
-      console.error('Failed to update tracked tab after removal:', error);
-    }
-  }
-
-  private setupTabTracking() {
-    browser.tabs.onActivated.addListener(({ tabId }) => {
-      this.lastActiveTabId = tabId;
-    });
-
-    browser.tabs.onUpdated.addListener((tabId, _changeInfo, tab) => {
-      if (tab.active && this.isContextEligibleTab({ ...tab, id: tabId })) {
-        this.lastActiveTabId = tabId;
-      }
-    });
-
-    browser.windows.onFocusChanged.addListener((windowId) => {
-      if (windowId === browser.windows.WINDOW_ID_NONE) {
-        return;
-      }
-
-      this.rememberCurrentActiveTab(windowId).catch((error) => {
-        console.warn('Failed to track focused tab:', error);
-      });
-    });
-  }
-
-  private async rememberCurrentActiveTab(windowId?: number): Promise<void> {
-    const query: browser.Tabs.QueryQueryInfoType = windowId !== undefined
-      ? { active: true, windowId }
-      : { active: true, lastFocusedWindow: true };
-
-    try {
-      const tabs = await browser.tabs.query(query);
-      const tab = this.pickContextTab(tabs);
-      if (tab) {
-        this.rememberContextTab(tab);
-      }
-    } catch (error) {
-      console.warn('Failed to remember active tab:', error);
-    }
-  }
-
-  private rememberContextTab(tab: browser.Tabs.Tab): void {
-    if (tab.id !== undefined && this.isContextEligibleTab(tab)) {
-      this.lastActiveTabId = tab.id;
-    }
-  }
-
   private async handleGetTabContext(payload: { tabIds?: number[] } = {}): Promise<TabContextResponse> {
     const { tabIds } = payload;
     const contexts: TabContext[] = [];
@@ -391,10 +335,6 @@ class BackgroundService {
       queries: [],
       content: [],
     };
-    if (this.lastActiveTabId !== undefined) {
-      diagnostics.lastActiveTabId = this.lastActiveTabId;
-    }
-
     const targetTabs = await this.resolveContextTabIds(tabIds, diagnostics);
     diagnostics.selectedTabIds = targetTabs;
 
@@ -408,9 +348,12 @@ class BackgroundService {
         const tab = await browser.tabs.get(tabId);
         contentDiagnostic.tab = this.toDiagnosticTab(tab);
 
-        const scriptStatus = await this.ensureContentScript(tabId);
+        const scriptStatus = await this.ensureContentScript(tabId, tab.url);
         contentDiagnostic.pingOk = scriptStatus.pingOk;
         contentDiagnostic.injected = scriptStatus.injected;
+        if (scriptStatus.permissionRequired !== undefined) {
+          contentDiagnostic.permissionRequired = scriptStatus.permissionRequired;
+        }
 
         if (!scriptStatus.ready) {
           console.warn(`Content script not available for tab ${tabId}`);
@@ -472,145 +415,34 @@ class BackgroundService {
       return [...new Set(tabIds.filter((tabId) => Number.isInteger(tabId)))];
     }
 
-    const candidates = new Map<number, browser.Tabs.Tab>();
-
-    if (this.lastActiveTabId !== undefined) {
-      try {
-        const tab = await browser.tabs.get(this.lastActiveTabId);
-        if (this.isContextEligibleTab(tab)) {
-          candidates.set(this.lastActiveTabId, tab);
-        }
-      } catch {
-        this.lastActiveTabId = undefined;
-      }
-    }
-
-    const queries: Array<{ source: string; query: Parameters<typeof browser.tabs.query>[0] }> = [
-      { source: 'current-window-active', query: { active: true, currentWindow: true } },
-      { source: 'last-focused-active', query: { active: true, lastFocusedWindow: true } },
-      { source: 'all-active-tabs', query: { active: true } },
-      { source: 'current-window-highlighted', query: { highlighted: true, currentWindow: true } },
-      { source: 'all-tabs', query: {} },
-    ];
-
-    for (const { source, query } of queries) {
-      try {
-        const tabs = await browser.tabs.query(query);
-        diagnostics.queries.push({
-          source,
-          count: tabs.length,
-          tabs: tabs.slice(0, 8).map((tab) => this.toDiagnosticTab(tab)),
-        });
-
-        for (const tab of tabs) {
-          if (tab.id !== undefined && this.isContextEligibleTab(tab)) {
-            candidates.set(tab.id, tab);
-          }
-        }
-      } catch (error) {
-        diagnostics.queries.push({
-          source,
-          count: 0,
-          tabs: [],
-          error: error instanceof Error ? error.message : String(error),
-        });
-        console.warn('Failed to resolve active tab:', error);
-      }
-    }
-
     try {
-      const focusedWindow = await browser.windows.getLastFocused({ populate: true });
-      const tabs = focusedWindow.tabs || [];
+      const tabs = await browser.tabs.query({ active: true, lastFocusedWindow: true });
       diagnostics.queries.push({
-        source: 'last-focused-window-populated',
+        source: 'last-focused-active',
         count: tabs.length,
         tabs: tabs.slice(0, 8).map((tab) => this.toDiagnosticTab(tab)),
       });
 
-      for (const tab of tabs) {
-        if (tab.id !== undefined && this.isContextEligibleTab(tab)) {
-          candidates.set(tab.id, tab);
-        }
+      const tab = tabs.find((candidate) => this.isContextEligibleTab(candidate));
+      if (tab?.id !== undefined) {
+        diagnostics.selectedSource = 'last-focused-active';
+        return [tab.id];
       }
     } catch (error) {
       diagnostics.queries.push({
-        source: 'last-focused-window-populated',
+        source: 'last-focused-active',
         count: 0,
         tabs: [],
         error: error instanceof Error ? error.message : String(error),
       });
-      console.warn('Failed to resolve focused window tab:', error);
-    }
-
-    const tab = this.pickBestContextTab([...candidates.values()]);
-    if (tab?.id !== undefined) {
-      this.lastActiveTabId = tab.id;
-      diagnostics.selectedSource = this.describeSelectedSource(tab);
-      return [tab.id];
+      console.warn('Failed to resolve active tab:', error);
     }
 
     return [];
   }
 
-  private pickContextTab(tabs: browser.Tabs.Tab[]): browser.Tabs.Tab | undefined {
-    return this.pickBestContextTab(tabs.filter((tab) => this.isContextEligibleTab(tab)));
-  }
-
-  private pickBestContextTab(tabs: browser.Tabs.Tab[]): browser.Tabs.Tab | undefined {
-    return [...tabs].sort((a, b) => {
-      const scoreDelta = this.scoreContextTab(b) - this.scoreContextTab(a);
-      if (scoreDelta !== 0) {
-        return scoreDelta;
-      }
-
-      return (b.lastAccessed || 0) - (a.lastAccessed || 0);
-    })[0];
-  }
-
-  private scoreContextTab(tab: browser.Tabs.Tab): number {
-    let score = 0;
-
-    if (tab.url && /^https?:\/\//i.test(tab.url)) {
-      score += 100;
-    }
-
-    if (tab.active) {
-      score += 30;
-    }
-
-    if (tab.highlighted) {
-      score += 10;
-    }
-
-    if (tab.id !== undefined && tab.id === this.lastActiveTabId) {
-      score += 20;
-    }
-
-    return score;
-  }
-
-  private describeSelectedSource(tab: browser.Tabs.Tab): string {
-    if (tab.id !== undefined && tab.id === this.lastActiveTabId) {
-      return 'tracked-active-tab';
-    }
-
-    if (tab.active) {
-      return 'tabs-query-active';
-    }
-
-    return 'tabs-query-recent';
-  }
-
   private isContextEligibleTab(tab: browser.Tabs.Tab): boolean {
-    if (tab.id === undefined) {
-      return false;
-    }
-
-    if (!tab.url) {
-      return true;
-    }
-
-    return /^https?:\/\//i.test(tab.url);
+    return tab.id !== undefined && Boolean(tab.url && /^https?:\/\//i.test(tab.url));
   }
 
   private toDiagnosticTab(tab: browser.Tabs.Tab): ContextDiagnosticsTab {
@@ -629,10 +461,11 @@ class BackgroundService {
     return result;
   }
 
-  private async ensureContentScript(tabId: number): Promise<{
+  private async ensureContentScript(tabId: number, tabUrl?: string): Promise<{
     ready: boolean;
     pingOk: boolean;
     injected: boolean;
+    permissionRequired?: boolean;
     error?: string;
   }> {
     if (await this.validateContentScript(tabId)) {
@@ -672,10 +505,20 @@ class BackgroundService {
       return result;
     } catch (error) {
       console.warn(`Failed to inject content script into tab ${tabId}:`, error);
+      const origin = toOriginPermissionPattern(tabUrl || '');
+      let permissionRequired: boolean | undefined;
+      if (origin && browser.permissions?.contains) {
+        try {
+          permissionRequired = !(await browser.permissions.contains({ origins: [origin] }));
+        } catch {
+          // Permission diagnostics are best effort; preserve the injection error below.
+        }
+      }
       return {
         ready: false,
         pingOk: false,
         injected: false,
+        ...(permissionRequired === undefined ? {} : { permissionRequired }),
         error: error instanceof Error ? error.message : String(error),
       };
     }
@@ -731,7 +574,6 @@ class BackgroundService {
 
   private async handleActionClick(tab: browser.Tabs.Tab) {
     try {
-      this.rememberContextTab(tab);
       // Ensure this is called from user gesture context
       await browserBridge.openSidePanel(tab.id);
     } catch (error) {
@@ -978,7 +820,8 @@ class BackgroundService {
       return;
     }
 
-    const origin = toOriginPermissionPattern(auth.host || config.endpoint);
+    const normalizedHost = getLocalProviderBaseUrl(providerId as 'ollama' | 'lmstudio', auth);
+    const origin = toOriginPermissionPattern(normalizedHost);
     if (!origin || !browser.permissions?.contains) {
       return;
     }
@@ -1009,19 +852,10 @@ class BackgroundService {
   }
 
   private async handleValidateHost(payload: { host: string }) {
-    try {
-      // Basic URL validation
-      const url = new URL(payload.host.startsWith('http') ? payload.host : `http://${payload.host}`);
-      return {
-        valid: true,
-        normalized: `${url.protocol}//${url.host}`
-      };
-    } catch {
-      return {
-        valid: false,
-        error: 'Invalid host format'
-      };
-    }
+    return this.settingsService?.validateHost(payload.host) || {
+      valid: false,
+      error: 'Settings service not initialized',
+    };
   }
 
   private async handleGetProviderModels(payload: { providerId: ProviderId }) {

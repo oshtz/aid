@@ -2,6 +2,7 @@ import react from '@vitejs/plugin-react';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { build } from 'vite';
+import { disablePageAgentScriptExecution } from './tools/disable-page-agent-script-execution.js';
 
 const root = process.cwd();
 const alias = {
@@ -18,6 +19,15 @@ const define = { 'process.env.NODE_ENV': JSON.stringify('production') };
 const FIREFOX_API_SHIM = `// Firefox compatibility
 if (typeof globalThis.chrome === 'undefined' && typeof globalThis.browser !== 'undefined') {
   globalThis.chrome = globalThis.browser;
+}
+`;
+
+const FIREFOX_EVENT_TARGET_SHIM = `// Firefox MV3 Xrays break subclasses of DOM EventTarget (Bug 1820521).
+class AidEventTarget {
+  constructor() { this.eventTarget = new EventTarget(); }
+  addEventListener(...args) { return this.eventTarget.addEventListener(...args); }
+  removeEventListener(...args) { return this.eventTarget.removeEventListener(...args); }
+  dispatchEvent(event) { return this.eventTarget.dispatchEvent(event); }
 }
 `;
 
@@ -47,18 +57,17 @@ const copyDirFiles = (sourceDir, targetDir, predicate = () => true) => {
 };
 
 const patchFirefoxJavaScript = (source) => {
-  let patched = source
-    .replace(
-      /if \(!globalThis\.chrome\?\.runtime\?\.id\) throw new Error\("This script should only be loaded in a browser extension\."\);/g,
-      'if (!(globalThis.chrome?.runtime?.id || globalThis.browser?.runtime?.id)) throw new Error("This script should only be loaded in a browser extension.");'
-    )
-    .replace(
-      /if \(!globalThis\.chrome\?\.runtime\?\.id\) \{[\s\S]*?throw new Error\("This script should only be loaded in a browser extension\."\);[\s\S]*?\}/g,
-      'if (!(globalThis.chrome?.runtime?.id || globalThis.browser?.runtime?.id)) {\n            throw new Error("This script should only be loaded in a browser extension.");\n          }'
-    );
+  let patched = source;
+  if (patched.includes('var PageController = class extends EventTarget')) {
+    const eventTargetSubclasses = patched.match(/extends EventTarget/g) || [];
+    if (eventTargetSubclasses.length !== 2) {
+      throw new Error('Pinned Page Agent EventTarget subclasses changed; review before building.');
+    }
+    patched = `${FIREFOX_EVENT_TARGET_SHIM}\n${patched.replaceAll('extends EventTarget', 'extends AidEventTarget')}`;
+  }
 
   if (patched.includes('globalThis.chrome') && !patched.trimStart().startsWith(FIREFOX_API_SHIM)) {
-    patched = `${FIREFOX_API_SHIM}\n${patched}`;
+    return `${FIREFOX_API_SHIM}\n${patched}`;
   }
 
   return patched;
@@ -82,6 +91,7 @@ const buildScriptEntry = async (name, input) => {
   try {
     await build({
       ...viteBase,
+      plugins: [disablePageAgentScriptExecution()],
       build: {
         outDir: tempDir,
         emptyOutDir: true,
@@ -116,7 +126,7 @@ const buildHtmlEntry = async (name, input) => {
   try {
     await build({
       ...viteBase,
-      plugins: [react()],
+      plugins: [react(), disablePageAgentScriptExecution()],
       build: {
         outDir: tempDir,
         emptyOutDir: true,
@@ -152,7 +162,6 @@ const buildHtmlEntry = async (name, input) => {
     }
 
     copyDirFiles(resolve(tempDir, 'styles'), resolve(root, 'dist/styles'), (file) => file.endsWith('.css'));
-    copyDirFiles(resolve(root, `src/${section}/styles`), resolve(root, `dist/${section}/styles`), (file) => file.endsWith('.css'));
   } finally {
     cleanDir(tempDir);
   }
