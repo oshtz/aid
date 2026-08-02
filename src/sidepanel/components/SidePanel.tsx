@@ -2584,7 +2584,7 @@ export const SidePanel: React.FC = () => {
           <div className="agent-guidance">
             <ShieldCheck size={14} />
             <span>{agentProviderSupported
-              ? 'Same-tab links are supported; cross-site and consequential actions ask first. Sensitive fields, new tabs, and tab switching stay blocked.'
+              ? 'Clicks and same-tab navigation run automatically; cross-site navigation asks first. Sensitive fields, new tabs, and tab switching stay blocked.'
               : 'Use OpenAI, OpenRouter, Ollama, or LM Studio for Agent mode.'}</span>
           </div>
         )}

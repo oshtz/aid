@@ -34,11 +34,11 @@ describe('Agent page safety', () => {
     );
   });
 
-  it('allows ordinary controls, confirms consequential actions, and routes links through navigation policy', () => {
+  it('allows all non-sensitive controls without approval and routes links through navigation policy', () => {
     const content = 'Page *[1]<button>Open filters /> Consequential *[2]<button type=submit>Publish /> Blocked controls Account password *[3]<a>Next page />';
 
     expect(assessAgentAction(content, 'click', 1).decision).toBe('allow');
-    expect(assessAgentAction(content, 'click', 2).decision).toBe('confirm');
+    expect(assessAgentAction(content, 'click', 2).decision).toBe('allow');
     expect(assessAgentAction(content, 'click', 3).decision).toBe('block');
     expect(assessAgentAction(content, 'click', 99).decision).toBe('block');
   });

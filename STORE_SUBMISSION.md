@@ -27,7 +27,7 @@ Prominent disclosure copy: use the exact disclosure rendered by `src/shared/Data
 
 Short description:
 
-> Chat with the current page using your choice of cloud or local AI provider, with inspectable context and an approval-based Agent Beta.
+> Chat with the current page using your choice of cloud or local AI provider, with inspectable context and an Agent Beta that asks before cross-site navigation.
 
 Privacy summary:
 
@@ -39,7 +39,7 @@ Page-access note:
 
 Agent Beta note:
 
-> Agent Beta controls one tab and can follow same-tab HTTP or HTTPS links. Same-site links can proceed automatically; cross-site and consequential actions require approval. Sensitive fields, downloads, new tabs, and tab switching are blocked. Redaction is best effort.
+> Agent Beta controls one tab and can click controls or follow same-tab HTTP or HTTPS links automatically. Cross-site navigation requires approval. Sensitive fields, downloads, new tabs, and tab switching are blocked. Redaction is best effort.
 
 ## Manual submission checklist
 
@@ -53,7 +53,7 @@ Agent Beta note:
 - [ ] Confirm the public privacy-policy URL contains the same wording before submission.
 - [ ] Upload the Chrome ZIP and complete Chrome review questions.
 - [ ] Upload the Firefox ZIP and matching source ZIP, and confirm AMO data-collection declarations match the manifest.
-- [ ] Install the packaged Chrome build and prove disclosure, provider setup, live and pinned context, pin restoration and removal, chat, cancellation, same-tab Agent navigation, cross-site approval, unexpected-navigation stop, and upgrade from the current public version.
+- [ ] Install the packaged Chrome build and prove disclosure, provider setup, live and pinned context, pin restoration and removal, chat, cancellation, repeated same-tab Agent navigation, cross-site approval, and upgrade from the current public version.
 - [ ] Manually install the packaged Firefox build in native Firefox, open the real sidebar, prove both the recommended all-websites grant and per-site fallback from direct clicks, and confirm readable page context. The automated smoke opens the sidebar code in a tab and is not evidence of this native permission flow.
 - [ ] Record store review results and public versions only after the stores report them.
 

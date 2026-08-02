@@ -64,7 +64,7 @@ export type AgentPageCommand =
       command: 'execute_action';
       action: AgentElementAction;
       args: unknown[];
-      approvedFingerprint?: string;
+      fingerprint: string;
     }
   | { command: 'scroll'; args: unknown[] }
   | { command: 'scroll_horizontally'; args: unknown[] };

@@ -71,7 +71,7 @@ export class AgentPageController {
       case 'prepare_navigation':
         return this.prepareNavigation(command.args, command.fingerprint);
       case 'execute_action':
-        return this.execute(command.action, command.args, command.approvedFingerprint);
+        return this.execute(command.action, command.args, command.fingerprint);
       case 'scroll':
         return this.getController().scroll(
           this.getObjectArg(command.args) as Parameters<PageController['scroll']>[0]
@@ -205,18 +205,15 @@ export class AgentPageController {
   private async execute(
     action: AgentElementAction,
     args: unknown[],
-    approvedFingerprint?: string
+    fingerprint: string
   ): Promise<AgentActionResult> {
     await this.getBrowserState();
     const assessment = this.assess(action, args);
     if (assessment.decision === 'block') {
       return failedAction(`Blocked by Aid: ${assessment.reason}`);
     }
-    if (
-      assessment.decision === 'confirm' &&
-      approvedFingerprint !== assessment.fingerprint
-    ) {
-      return failedAction('The action was not approved or its target changed.');
+    if (fingerprint !== assessment.fingerprint) {
+      return failedAction('The action target changed before it could run.');
     }
 
     const controller = this.getController();

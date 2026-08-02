@@ -69,7 +69,7 @@ describe('AgentPageController', () => {
     )).rejects.toThrow('no longer active');
   });
 
-  it('rejects an approved action when its indexed element changes', async () => {
+  it('rejects an action when its indexed element changes', async () => {
     const controller = new AgentPageController();
     await controller.handleMessage(message('run-1', { command: 'start', initialUrl }), sender);
     await controller.handleMessage(message('run-1', { command: 'get_browser_state' }), sender);
@@ -90,7 +90,7 @@ describe('AgentPageController', () => {
       command: 'execute_action',
       action: 'click',
       args: [1],
-      approvedFingerprint: assessment.fingerprint,
+      fingerprint: assessment.fingerprint,
     }), sender) as { success: boolean; message: string };
 
     expect(result.success).toBe(false);

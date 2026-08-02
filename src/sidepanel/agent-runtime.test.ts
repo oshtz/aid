@@ -68,6 +68,16 @@ vi.mock('webextension-polyfill', () => ({
             sameOrigin: true,
           };
         }
+        if (command === 'assess_action') {
+          return {
+            decision: 'allow',
+            action: 'click',
+            index: 3,
+            label: '[3]<button type=submit>Authorize and continue />',
+            reason: 'Allowed by the current-page action policy.',
+            fingerprint: 'click:3:authorize',
+          };
+        }
         if (command === 'execute_action' && browserState.clickNavigationUrl) {
           setTimeout(() => {
             browserState.tab.url = browserState.clickNavigationUrl;
@@ -95,6 +105,7 @@ vi.mock('webextension-polyfill', () => ({
 
 import { AidAgentRun } from './agent-runtime';
 
+const onApproval = vi.fn(async () => false);
 const createRun = () => new AidAgentRun({
   tabId: 7,
   initialUrl: 'https://example.com/',
@@ -105,7 +116,7 @@ const createRun = () => new AidAgentRun({
   model: 'test-model',
   onActivity: vi.fn(),
   onStep: vi.fn(),
-  onApproval: vi.fn(async () => false),
+  onApproval,
   onInterrupted: vi.fn(),
 });
 
@@ -123,7 +134,7 @@ describe('AidAgentRun lifecycle', () => {
     pageAgentState.execute.mockResolvedValue({ success: true, data: 'done', history: [] });
   });
 
-  it('stops immediately on navigation and removes all run listeners', async () => {
+  it('keeps same-tab navigation alive and removes all run listeners', async () => {
     let finish: ((value: { success: boolean; data: string; history: never[] }) => void) | undefined;
     pageAgentState.execute.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
     const run = createRun();
@@ -133,8 +144,8 @@ describe('AidAgentRun lifecycle', () => {
     browserState.updated.forEach((listener) => listener(7, { url: 'https://example.com/next' }));
     finish?.({ success: false, data: '', history: [] });
 
-    await expect(execution).rejects.toThrow('Navigation stopped');
-    expect(pageAgentState.stop).toHaveBeenCalledOnce();
+    await expect(execution).resolves.toMatchObject({ success: false });
+    expect(pageAgentState.stop).not.toHaveBeenCalled();
     expect(pageAgentState.dispose).toHaveBeenCalledOnce();
     expect(browserState.activated.size + browserState.updated.size + browserState.removed.size).toBe(0);
   });
@@ -163,7 +174,7 @@ describe('AidAgentRun lifecycle', () => {
     expect(browserState.activated.size + browserState.updated.size + browserState.removed.size).toBe(0);
   });
 
-  it('continues when an approved page click navigates the controlled tab', async () => {
+  it('continues without approval when a page click navigates the controlled tab', async () => {
     browserState.clickNavigationUrl = 'https://example.com/next';
     browserState.clickNavigationDelayMs = 25;
     pageAgentState.execute.mockImplementation(async () => {
@@ -177,6 +188,7 @@ describe('AidAgentRun lifecycle', () => {
 
     await expect(run.execute('Click and continue')).resolves.toMatchObject({ success: true });
     expect(browserState.tab.url).toBe('https://example.com/next');
+    expect(onApproval).not.toHaveBeenCalled();
     expect(pageAgentState.stop).not.toHaveBeenCalled();
     expect(browser.runtime.sendMessage).toHaveBeenCalledOnce();
     expect(browserState.activated.size + browserState.updated.size + browserState.removed.size).toBe(0);

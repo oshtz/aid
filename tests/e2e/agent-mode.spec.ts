@@ -25,7 +25,7 @@ const openAgentPanel = async (
   const panelPage = await aid.openSidePanelPage();
   await expect(panelPage.locator('.chat-input')).toBeEnabled({ timeout: 15_000 });
   await panelPage.getByRole('button', { name: /Agent Beta/ }).click();
-  await expect(panelPage.locator('.agent-guidance')).toContainText('Same-tab links are supported');
+  await expect(panelPage.locator('.agent-guidance')).toContainText('Clicks and same-tab navigation run automatically');
   return { fixturePage, panelPage };
 };
 
@@ -144,7 +144,7 @@ test.describe('Aid same-tab Agent mode', () => {
     await expect(restoredReceipt).toContainText(/\d+ tokens/);
   });
 
-  test('asks once before a consequential action and executes an approval', async () => {
+  test('runs consequential clicks without approval', async () => {
     providerServer.queueChatResponse({
       kind: 'agent',
       tool: 'click_element_by_index',
@@ -158,25 +158,20 @@ test.describe('Aid same-tab Agent mode', () => {
     const { fixturePage, panelPage } = await openAgentPanel(aid, fixtureServer);
 
     await startAgentTask(panelPage, 'Publish the report');
-    await expect(panelPage.locator('.agent-approval')).toContainText('Publish report', {
-      timeout: AGENT_RESULT_TIMEOUT,
-    });
-    await expect(fixturePage.locator('#status')).toHaveText('Waiting');
-    await panelPage.getByRole('button', { name: 'Approve once' }).click();
-
     await expect(fixturePage.locator('#status')).toHaveText('Report published', {
       timeout: AGENT_RESULT_TIMEOUT,
     });
+    await expect(panelPage.locator('.agent-approval')).toHaveCount(0);
     await expect(panelPage.locator('.assistant-message').last()).toContainText(
       'The report was published.',
       { timeout: AGENT_RESULT_TIMEOUT }
     );
     const receipt = panelPage.locator('.agent-receipt-card').last();
     await receipt.locator('summary').click();
-    await expect(receipt).toContainText('approved');
+    await expect(receipt).toContainText('not required');
   });
 
-  test('continues after an approved click navigates the controlled tab', async () => {
+  test('continues without approval after a click navigates the controlled tab', async () => {
     providerServer.queueChatResponse({
       kind: 'agent',
       tool: 'click_element_by_index',
@@ -190,14 +185,10 @@ test.describe('Aid same-tab Agent mode', () => {
     const { fixturePage, panelPage } = await openAgentPanel(aid, fixtureServer);
 
     await startAgentTask(panelPage, 'Authorize the action and continue on the destination page');
-    await expect(panelPage.locator('.agent-approval')).toContainText('Authorize and continue', {
-      timeout: AGENT_RESULT_TIMEOUT,
-    });
-    await panelPage.getByRole('button', { name: 'Approve once' }).click();
-
     await expect(fixturePage).toHaveURL(`${fixtureServer.origin}/research-page.html`, {
       timeout: AGENT_RESULT_TIMEOUT,
     });
+    await expect(panelPage.locator('.agent-approval')).toHaveCount(0);
     const secondRequest = await providerServer.waitForChatRequestAt(1);
     expect(JSON.stringify(secondRequest)).toContain('Quarterly Browser Automation Report');
     await expect(panelPage.locator('.assistant-message').last()).toContainText(
@@ -206,31 +197,38 @@ test.describe('Aid same-tab Agent mode', () => {
     );
   });
 
-  test('keeps the page unchanged when approval is denied', async () => {
+  test('keeps the page unchanged when cross-site navigation is denied', async () => {
     providerServer.queueChatResponse({
       kind: 'agent',
-      tool: 'click_element_by_index',
-      targetText: 'Publish report',
+      tool: 'navigate_to_link',
+      targetText: 'Next website',
     });
     providerServer.queueChatResponse({
       kind: 'agent',
       tool: 'done',
-      text: 'Publish was denied.',
+      text: 'Navigation was denied.',
       success: false,
     });
     const { fixturePage, panelPage } = await openAgentPanel(aid, fixtureServer);
+    const destination = `${fixtureServer.origin.replace('127.0.0.1', 'localhost')}/research-page.html`;
+    await fixturePage.evaluate((url) => {
+      const link = document.querySelector<HTMLAnchorElement>('#navigation-link');
+      if (!link) throw new Error('Navigation fixture link not found');
+      link.href = url;
+      link.textContent = 'Next website';
+    }, destination);
 
-    await startAgentTask(panelPage, 'Publish the report');
+    await startAgentTask(panelPage, 'Open the next website');
     await expect(panelPage.locator('.agent-approval')).toBeVisible({ timeout: AGENT_RESULT_TIMEOUT });
     await panelPage.getByRole('button', { name: 'Deny' }).click();
 
-    await expect(fixturePage.locator('#status')).toHaveText('Waiting');
-    await expect(panelPage.locator('.assistant-message').last()).toContainText('Publish was denied.', {
+    await expect(fixturePage).toHaveURL(`${fixtureServer.origin}/agent-page.html`);
+    await expect(panelPage.locator('.assistant-message').last()).toContainText('Navigation was denied.', {
       timeout: AGENT_RESULT_TIMEOUT,
     });
   });
 
-  test('navigates the controlled tab and continues with the loaded page context', async () => {
+  test('navigates two pages deep and refreshes context after every hop', async () => {
     providerServer.queueChatResponse({
       kind: 'agent',
       tool: 'navigate_to_link',
@@ -238,17 +236,17 @@ test.describe('Aid same-tab Agent mode', () => {
     });
     providerServer.queueChatResponse({
       kind: 'agent',
-      tool: 'click_element_by_index',
-      targetText: 'Open details',
+      tool: 'navigate_to_link',
+      targetText: 'Deeper page',
     });
     providerServer.queueChatResponse({
       kind: 'agent',
       tool: 'done',
-      text: 'The research details are open.',
+      text: 'The deep research page is ready.',
     });
     const { fixturePage, panelPage } = await openAgentPanel(aid, fixtureServer);
 
-    await startAgentTask(panelPage, 'Go to the next page and open details');
+    await startAgentTask(panelPage, 'Go two pages deep');
 
     await expect(panelPage.locator('.agent-approval')).toHaveCount(0);
     await expect(fixturePage).toHaveURL(`${fixtureServer.origin}/research-page.html`, {
@@ -256,16 +254,17 @@ test.describe('Aid same-tab Agent mode', () => {
     });
     const secondRequest = await providerServer.waitForChatRequestAt(1);
     expect(JSON.stringify(secondRequest)).toContain('Quarterly Browser Automation Report');
-    await expect(fixturePage.locator('#details-status')).toHaveText('Details opened');
+    await expect(fixturePage).toHaveURL(`${fixtureServer.origin}/deep-research-page.html`, {
+      timeout: AGENT_RESULT_TIMEOUT,
+    });
     const thirdRequest = await providerServer.waitForChatRequestAt(2);
-    expect(JSON.stringify(thirdRequest)).toContain('Details opened');
-    await expect(panelPage.locator('.assistant-message').last()).toContainText('The research details are open.', {
+    expect(JSON.stringify(thirdRequest)).toContain('Deep Browser Research');
+    await expect(panelPage.locator('.assistant-message').last()).toContainText('The deep research page is ready.', {
       timeout: AGENT_RESULT_TIMEOUT,
     });
     const receipt = panelPage.locator('.agent-receipt-card').last();
     await receipt.locator('summary').click();
     await expect(receipt).toContainText('navigate');
-    await expect(receipt).toContainText('click');
     await expect(receipt).toContainText('completed');
   });
 
@@ -346,11 +345,11 @@ test.describe('Aid same-tab Agent mode', () => {
     await expect(panelPage.getByText('This should never render.')).toHaveCount(0);
   });
 
-  test('stops an in-flight run when the starting page navigates', async () => {
+  test('keeps an in-flight run alive when the controlled tab navigates', async () => {
     providerServer.queueChatResponse({
       kind: 'agent',
       tool: 'done',
-      text: 'This late result should never render.',
+      text: 'The run stayed active.',
       delayMs: 5_000,
     });
     const { fixturePage, panelPage } = await openAgentPanel(aid, fixtureServer);
@@ -359,29 +358,32 @@ test.describe('Aid same-tab Agent mode', () => {
     await providerServer.waitForChatRequestAt(0);
     await fixturePage.goto(`${fixtureServer.origin}/research-page.html`);
 
-    await expect(panelPage.locator('.agent-run-card')).toHaveCount(0, { timeout: AGENT_RESULT_TIMEOUT });
-    await expect(panelPage.locator('.chat-error-banner')).toContainText('Navigation stopped', {
+    await expect(panelPage.locator('.assistant-message').last()).toContainText('The run stayed active.', {
       timeout: AGENT_RESULT_TIMEOUT,
     });
-    await expect(panelPage.locator('.agent-receipt-card').last()).toContainText('stopped');
-    await expect(panelPage.getByText('This late result should never render.')).toHaveCount(0);
+    await expect(panelPage.locator('.chat-error-banner')).toHaveCount(0);
+    await expect(panelPage.locator('.agent-receipt-card').last()).toContainText('completed');
   });
 
-  test('cancels a pending approval when navigation stops the run', async () => {
+  test('cancels a pending cross-site approval when the run is stopped', async () => {
     providerServer.queueChatResponse({
       kind: 'agent',
-      tool: 'click_element_by_index',
-      targetText: 'Publish report',
+      tool: 'navigate_to_link',
+      targetText: 'Next website',
     });
     const { fixturePage, panelPage } = await openAgentPanel(aid, fixtureServer);
+    const destination = `${fixtureServer.origin.replace('127.0.0.1', 'localhost')}/research-page.html`;
+    await fixturePage.evaluate((url) => {
+      const link = document.querySelector<HTMLAnchorElement>('#navigation-link');
+      if (!link) throw new Error('Navigation fixture link not found');
+      link.href = url;
+      link.textContent = 'Next website';
+    }, destination);
 
-    await startAgentTask(panelPage, 'Publish after approval');
+    await startAgentTask(panelPage, 'Open the next website');
     await expect(panelPage.locator('.agent-approval')).toBeVisible({ timeout: AGENT_RESULT_TIMEOUT });
-    await fixturePage.goto(`${fixtureServer.origin}/research-page.html`);
+    await panelPage.getByRole('button', { name: 'Stop agent task' }).click();
 
-    await expect(panelPage.locator('.chat-error-banner')).toContainText('Navigation stopped', {
-      timeout: AGENT_RESULT_TIMEOUT,
-    });
     const receipt = panelPage.locator('.agent-receipt-card').last();
     await expect(receipt).toContainText('stopped');
     await receipt.locator('summary').click();

@@ -105,17 +105,6 @@ export const assessAgentAction = (
     };
   }
 
-  if (action === 'click' && requiresAgentActionConfirmation(label)) {
-    return {
-      decision: 'confirm',
-      action,
-      index,
-      label,
-      reason: 'This action may submit data or cause an external or irreversible change.',
-      fingerprint,
-    };
-  }
-
   return {
     decision: 'allow',
     action,
