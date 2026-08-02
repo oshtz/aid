@@ -55,6 +55,7 @@ import {
   getAgentProviderConnection,
   isAgentProviderId,
   type AgentActionAssessment,
+  type AgentNavigationAssessment,
 } from '@/shared/agent';
 import {
   getFriendlyProviderError,
@@ -1312,7 +1313,20 @@ export const SidePanel: React.FC = () => {
     });
   };
 
-  const resolveAgentApproval = (approved: boolean) => {
+  const resolveAgentApproval = async (approved: boolean) => {
+    if (
+      approved &&
+      pendingAgentApproval?.action === 'navigate' &&
+      !(pendingAgentApproval as AgentNavigationAssessment).sameOrigin
+    ) {
+      try {
+        approved = await ensureOriginPermission(
+          (pendingAgentApproval as AgentNavigationAssessment).targetUrl
+        );
+      } catch {
+        approved = false;
+      }
+    }
     const resolve = agentApprovalResolverRef.current;
     agentApprovalResolverRef.current = null;
     setPendingAgentApproval(null);
@@ -1977,7 +1991,7 @@ export const SidePanel: React.FC = () => {
             <MousePointerClick size={24} />
           </div>
           <h2>Operate this page</h2>
-          <p>Aid can inspect, scroll, type, and click. Links and sensitive fields are blocked; navigation or switching tabs stops the run.</p>
+          <p>Aid can inspect, scroll, type, click, and follow same-tab links. Cross-site navigation asks first; sensitive fields, new tabs, and tab switching remain blocked.</p>
           <div className="prompt-chips">
             <button onClick={() => setInputValue('Open the filters and select the most relevant option')}>
               Adjust a filter
@@ -2570,7 +2584,7 @@ export const SidePanel: React.FC = () => {
           <div className="agent-guidance">
             <ShieldCheck size={14} />
             <span>{agentProviderSupported
-              ? 'Links and sensitive fields are blocked; consequential actions ask first. Navigation or tab switching stops the run.'
+              ? 'Same-tab links are supported; cross-site and consequential actions ask first. Sensitive fields, new tabs, and tab switching stay blocked.'
               : 'Use OpenAI, OpenRouter, Ollama, or LM Studio for Agent mode.'}</span>
           </div>
         )}
@@ -2613,10 +2627,10 @@ export const SidePanel: React.FC = () => {
               <small>{pendingAgentApproval.reason}</small>
             </div>
             <div className="agent-approval-actions">
-              <button type="button" className="ghost-action" onClick={() => resolveAgentApproval(false)}>
+              <button type="button" className="ghost-action" onClick={() => void resolveAgentApproval(false)}>
                 Deny
               </button>
-              <button type="button" className="primary-action" onClick={() => resolveAgentApproval(true)}>
+              <button type="button" className="primary-action" onClick={() => void resolveAgentApproval(true)}>
                 Approve once
               </button>
             </div>

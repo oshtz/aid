@@ -30,7 +30,8 @@ export const getAgentProviderConnection = (
   return auth.value ? { ...connection, apiKey: auth.value.trim() } : connection;
 };
 
-export type AgentPageAction = 'click' | 'input' | 'select';
+export type AgentElementAction = 'click' | 'input' | 'select';
+export type AgentPageAction = AgentElementAction | 'navigate';
 export type AgentActionDecision = 'allow' | 'confirm' | 'block';
 
 export interface AgentActionAssessment {
@@ -42,6 +43,12 @@ export interface AgentActionAssessment {
   fingerprint: string;
 }
 
+export interface AgentNavigationAssessment extends AgentActionAssessment {
+  action: 'navigate';
+  targetUrl: string;
+  sameOrigin: boolean;
+}
+
 export type AgentPageCommand =
   | { command: 'start'; initialUrl: string }
   | { command: 'get_browser_state' }
@@ -50,10 +57,12 @@ export type AgentPageCommand =
   | { command: 'hide_mask' }
   | { command: 'clean_highlights' }
   | { command: 'cleanup' }
-  | { command: 'assess_action'; action: AgentPageAction; args: unknown[] }
+  | { command: 'assess_action'; action: AgentElementAction; args: unknown[] }
+  | { command: 'assess_navigation'; args: unknown[] }
+  | { command: 'prepare_navigation'; args: unknown[]; fingerprint: string }
   | {
       command: 'execute_action';
-      action: AgentPageAction;
+      action: AgentElementAction;
       args: unknown[];
       approvedFingerprint?: string;
     }

@@ -25,7 +25,7 @@ const openAgentPanel = async (
   const panelPage = await aid.openSidePanelPage();
   await expect(panelPage.locator('.chat-input')).toBeEnabled({ timeout: 15_000 });
   await panelPage.getByRole('button', { name: /Agent Beta/ }).click();
-  await expect(panelPage.locator('.agent-guidance')).toContainText('Navigation or tab switching stops the run');
+  await expect(panelPage.locator('.agent-guidance')).toContainText('Same-tab links are supported');
   return { fixturePage, panelPage };
 };
 
@@ -34,7 +34,7 @@ const startAgentTask = async (panelPage: Page, task: string) => {
   await panelPage.locator('.send-button').click();
 };
 
-test.describe('Aid current-page Agent mode', () => {
+test.describe('Aid same-tab Agent mode', () => {
   let fixtureServer: RunningServer;
   let providerServer: FakeProviderServer;
   let aid: AidExtensionContext;
@@ -200,28 +200,67 @@ test.describe('Aid current-page Agent mode', () => {
     });
   });
 
-  test('blocks navigation and stays on the original document', async () => {
+  test('navigates the controlled tab and continues with the loaded page context', async () => {
     providerServer.queueChatResponse({
       kind: 'agent',
-      tool: 'click_element_by_index',
+      tool: 'navigate_to_link',
       targetText: 'Next page',
     });
     providerServer.queueChatResponse({
       kind: 'agent',
       tool: 'done',
-      text: 'Navigation was blocked.',
-      success: false,
+      text: 'The research page is open.',
     });
     const { fixturePage, panelPage } = await openAgentPanel(aid, fixtureServer);
-    const initialUrl = fixturePage.url();
 
     await startAgentTask(panelPage, 'Go to the next page');
 
     await expect(panelPage.locator('.agent-approval')).toHaveCount(0);
-    await expect(panelPage.locator('.assistant-message').last()).toContainText('Navigation was blocked.', {
+    await expect(fixturePage).toHaveURL(`${fixtureServer.origin}/research-page.html`, {
       timeout: AGENT_RESULT_TIMEOUT,
     });
-    expect(fixturePage.url()).toBe(initialUrl);
+    const secondRequest = await providerServer.waitForChatRequestAt(1);
+    expect(JSON.stringify(secondRequest)).toContain('Quarterly Browser Automation Report');
+    await expect(panelPage.locator('.assistant-message').last()).toContainText('The research page is open.', {
+      timeout: AGENT_RESULT_TIMEOUT,
+    });
+    const receipt = panelPage.locator('.agent-receipt-card').last();
+    await receipt.locator('summary').click();
+    await expect(receipt).toContainText('navigate');
+    await expect(receipt).toContainText('completed');
+  });
+
+  test('asks before cross-site navigation and continues after approval', async () => {
+    providerServer.queueChatResponse({
+      kind: 'agent',
+      tool: 'navigate_to_link',
+      targetText: 'Next website',
+    });
+    providerServer.queueChatResponse({
+      kind: 'agent',
+      tool: 'done',
+      text: 'The approved website is open.',
+    });
+    const { fixturePage, panelPage } = await openAgentPanel(aid, fixtureServer);
+    const destination = `${fixtureServer.origin.replace('127.0.0.1', 'localhost')}/research-page.html`;
+    await fixturePage.evaluate((url) => {
+      const link = document.querySelector<HTMLAnchorElement>('#navigation-link');
+      if (!link) throw new Error('Navigation fixture link not found');
+      link.href = url;
+      link.textContent = 'Next website';
+    }, destination);
+
+    await startAgentTask(panelPage, 'Open the next website');
+
+    await expect(panelPage.locator('.agent-approval')).toContainText('another website', {
+      timeout: AGENT_RESULT_TIMEOUT,
+    });
+    await panelPage.getByRole('button', { name: 'Approve once' }).click();
+    await expect(fixturePage).toHaveURL(destination, { timeout: AGENT_RESULT_TIMEOUT });
+    await expect(panelPage.locator('.assistant-message').last()).toContainText(
+      'The approved website is open.',
+      { timeout: AGENT_RESULT_TIMEOUT }
+    );
   });
 
   test('keeps sensitive fields unavailable to model actions', async () => {

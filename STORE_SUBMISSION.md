@@ -11,7 +11,7 @@ Use the following disclosures for the next submission:
 - Browsing activity: current and explicitly pinned page URLs and titles when page context is enabled.
 - Website content: readable text, visible UI state, forms, tables, lists, media labels, same-origin frame content, open shadow-DOM content, and pinned page snapshots attached by the user.
 
-Purpose: provide Aid's user-facing AI chat, page-context, provider setup, and opt-in current-page Agent features.
+Purpose: provide Aid's user-facing AI chat, page-context, provider setup, and opt-in same-tab Agent features.
 
 Data handling copy:
 
@@ -39,7 +39,7 @@ Page-access note:
 
 Agent Beta note:
 
-> Agent Beta operates only on the starting page. Links and sensitive fields are blocked, consequential actions require approval, and navigation or switching tabs stops the run. Redaction is best effort.
+> Agent Beta controls one tab and can follow same-tab HTTP or HTTPS links. Same-site links can proceed automatically; cross-site and consequential actions require approval. Sensitive fields, downloads, new tabs, and tab switching are blocked. Redaction is best effort.
 
 ## Manual submission checklist
 
@@ -53,7 +53,7 @@ Agent Beta note:
 - [ ] Confirm the public privacy-policy URL contains the same wording before submission.
 - [ ] Upload the Chrome ZIP and complete Chrome review questions.
 - [ ] Upload the Firefox ZIP and matching source ZIP, and confirm AMO data-collection declarations match the manifest.
-- [ ] Install the packaged Chrome build and prove disclosure, provider setup, live and pinned context, pin restoration and removal, chat, cancellation, Agent approval, navigation stop, and upgrade from the current public version.
+- [ ] Install the packaged Chrome build and prove disclosure, provider setup, live and pinned context, pin restoration and removal, chat, cancellation, same-tab Agent navigation, cross-site approval, unexpected-navigation stop, and upgrade from the current public version.
 - [ ] Manually install the packaged Firefox build in native Firefox, open the real sidebar, prove both the recommended all-websites grant and per-site fallback from direct clicks, and confirm readable page context. The automated smoke opens the sidebar code in a tab and is not evidence of this native permission flow.
 - [ ] Record store review results and public versions only after the stores report them.
 

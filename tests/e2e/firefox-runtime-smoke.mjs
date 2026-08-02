@@ -9,6 +9,7 @@ import { firefox } from '@playwright/test';
 
 const EXTENSION_ID = '{2f6b9f52-35ec-44cb-9f1d-4a37d4c7747c}';
 const SENTINEL = 'FIREFOX_CONTEXT_SENTINEL_9271';
+const NEXT_SENTINEL = 'FIREFOX_AGENT_NAVIGATION_SENTINEL_4816';
 const ALL_PAGE_PERMISSION_ORIGINS = ['https://*/*', 'http://*/*'];
 const fixtureHost = '127.0.0.2';
 const sourceDir = path.resolve('dist');
@@ -106,6 +107,7 @@ async function readExtensionUuid(profileDir) {
 const fixturePort = await getFreePort(fixtureHost);
 const bidiPort = await getFreePort();
 const fixtureUrl = `http://${fixtureHost}:${fixturePort}/fixture`;
+const nextFixtureUrl = `http://${fixtureHost}:${fixturePort}/next`;
 const fixtureHtml = `<!doctype html>
 <html>
   <head><title>Aid Firefox Sentinel</title></head>
@@ -117,14 +119,20 @@ const fixtureHtml = `<!doctype html>
         page-context collector must preserve real readable document content from Firefox,
         not merely tab metadata or viewport dimensions.</p>
         <button type="button">Open filters</button>
+        <a href="/next">Next page</a>
       </article>
     </main>
   </body>
 </html>`;
+const nextFixtureHtml = `<!doctype html>
+<html>
+  <head><title>Aid Firefox Navigation Target</title></head>
+  <body><main><h1>Firefox navigation target</h1><p>${NEXT_SENTINEL}</p></main></body>
+</html>`;
 
-const fixtureServer = http.createServer((_request, response) => {
+const fixtureServer = http.createServer((request, response) => {
   response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  response.end(fixtureHtml);
+  response.end(request.url === '/next' ? nextFixtureHtml : fixtureHtml);
 });
 await new Promise((resolve, reject) => {
   fixtureServer.once('error', reject);
@@ -268,6 +276,33 @@ try {
   const agentState = await sendAgentCommand({ command: 'get_browser_state' });
   assert.equal(agentState.url, fixtureUrl);
   assert.match(agentState.content, /Open filters/);
+  const navigationIndex = Number(agentState.content.match(/\*?\[(\d+)]<a[^\n]*Next page/)?.[1]);
+  assert.ok(Number.isInteger(navigationIndex), 'Firefox Agent did not index the navigation link');
+  const navigationAssessment = await sendAgentCommand({ command: 'assess_navigation', args: [navigationIndex] });
+  assert.equal(navigationAssessment.decision, 'allow');
+  assert.equal(navigationAssessment.targetUrl, nextFixtureUrl);
+  await evaluate(`browser.tabs.update(${fixtureTab.id}, { url: ${JSON.stringify(nextFixtureUrl)} })`);
+  let navigatedTab;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    navigatedTab = JSON.parse(await evaluate(
+      `(async () => JSON.stringify(await browser.tabs.get(${fixtureTab.id})))()`,
+    ));
+    if (navigatedTab.url === nextFixtureUrl && navigatedTab.status === 'complete') break;
+    await delay(100);
+  }
+  assert.equal(navigatedTab?.url, nextFixtureUrl);
+  const nextContextResponse = JSON.parse(await evaluate(
+    `(async () => JSON.stringify(await browser.runtime.sendMessage({` +
+      `type: 'GET_TAB_CONTEXT', payload: { tabIds: [${fixtureTab.id}] }` +
+    `})))()`,
+  ));
+  assert.match(nextContextResponse.contexts?.[0]?.abstract ?? '', new RegExp(NEXT_SENTINEL));
+  assert.deepEqual(await sendAgentCommand({ command: 'start', initialUrl: nextFixtureUrl }), {
+    success: true,
+  });
+  const nextAgentState = await sendAgentCommand({ command: 'get_browser_state' });
+  assert.equal(nextAgentState.url, nextFixtureUrl);
+  assert.match(nextAgentState.content, new RegExp(NEXT_SENTINEL));
   await sendAgentCommand({ command: 'cleanup' });
 
   let bodyText = '';
@@ -279,7 +314,7 @@ try {
   assert.match(bodyText, /Page context ready/);
   assert.doesNotMatch(bodyText, /No readable page context is available/);
 
-  console.log(`Firefox ${session.capabilities.browserVersion}: permissions, page context, and Agent controller smoke passed`);
+  console.log(`Firefox ${session.capabilities.browserVersion}: permissions, page context, and Agent navigation smoke passed`);
 } finally {
   try {
     bidi?.socket.close();

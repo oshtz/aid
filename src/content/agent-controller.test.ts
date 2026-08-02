@@ -10,6 +10,7 @@ const pageControllerState = vi.hoisted(() => ({
   },
   clickElement: vi.fn(async () => ({ success: true })),
   dispose: vi.fn(),
+  selectorMap: new Map<number, { ref: HTMLElement }>(),
 }));
 
 vi.mock('webextension-polyfill', () => ({
@@ -21,6 +22,7 @@ vi.mock('@page-agent/page-controller', () => ({
     getBrowserState = async () => pageControllerState.browserState;
     clickElement = pageControllerState.clickElement;
     dispose = pageControllerState.dispose;
+    selectorMap = pageControllerState.selectorMap;
   },
 }));
 
@@ -40,6 +42,7 @@ const message = (
 describe('AgentPageController', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    pageControllerState.selectorMap.clear();
     pageControllerState.browserState = {
       url: initialUrl,
       title: 'Example',
@@ -106,6 +109,56 @@ describe('AgentPageController', () => {
       args: [1],
     }), sender)).rejects.toThrow('Navigation stopped');
     expect(pageControllerState.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('allows same-site links, confirms cross-site links, and revalidates the destination', async () => {
+    const controller = new AgentPageController();
+    pageControllerState.browserState.content = '*[3]<a>Next page />';
+    let href = 'https://example.com/next?token=secret#details';
+    const link = {
+      get href() { return href; },
+      target: '',
+      hasAttribute: () => false,
+    };
+    pageControllerState.selectorMap.set(3, {
+      ref: { closest: () => link } as unknown as HTMLElement,
+    });
+
+    await controller.handleMessage(message('run-1', { command: 'start', initialUrl }), sender);
+    await controller.handleMessage(message('run-1', { command: 'get_browser_state' }), sender);
+    const sameSite = await controller.handleMessage(message('run-1', {
+      command: 'assess_navigation',
+      args: [3],
+    }), sender) as { decision: string; fingerprint: string; label: string };
+
+    expect(sameSite.decision).toBe('allow');
+    expect(sameSite.label).toContain('https://example.com/next');
+    expect(sameSite.label).not.toContain('token=secret');
+
+    href = 'https://other.example/research';
+    const changed = await controller.handleMessage(message('run-1', {
+      command: 'prepare_navigation',
+      args: [3],
+      fingerprint: sameSite.fingerprint,
+    }), sender) as { decision: string; targetUrl: string; reason: string };
+    expect(changed.decision).toBe('block');
+    expect(changed.targetUrl).toBe('');
+    expect(changed.reason).toContain('no longer the approved target');
+
+    const crossSite = await controller.handleMessage(message('run-1', {
+      command: 'assess_navigation',
+      args: [3],
+    }), sender) as { decision: string };
+    expect(crossSite.decision).toBe('confirm');
+
+    href = 'https://example.com/delete-account';
+    pageControllerState.browserState.content = '*[3]<a>Delete account />';
+    await controller.handleMessage(message('run-1', { command: 'get_browser_state' }), sender);
+    const consequential = await controller.handleMessage(message('run-1', {
+      command: 'assess_navigation',
+      args: [3],
+    }), sender) as { decision: string };
+    expect(consequential.decision).toBe('confirm');
   });
 
   it('redacts title and URL secrets from the complete Agent browser state', async () => {

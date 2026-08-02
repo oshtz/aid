@@ -4,7 +4,8 @@ import type {
   AgentActionAssessment,
   AgentActionResult,
   AgentBrowserState,
-  AgentPageAction,
+  AgentElementAction,
+  AgentNavigationAssessment,
   AgentPageControlMessage,
 } from '@/shared/agent';
 import { ContextCollector } from '@/shared/context-collector';
@@ -13,7 +14,17 @@ import {
   clearSensitiveAgentElementMarks,
   markSensitiveAgentElements,
   sanitizeAgentPageContent,
+  findAgentElementDescriptor,
+  requiresAgentActionConfirmation,
 } from './agent-safety';
+
+interface IndexedAgentElement {
+  ref?: HTMLElement;
+}
+
+interface PageControllerSelectorMap {
+  selectorMap: Map<number, IndexedAgentElement>;
+}
 
 const failedAction = (message: string): AgentActionResult => ({ success: false, message });
 
@@ -55,6 +66,10 @@ export class AgentPageController {
         return { success: true };
       case 'assess_action':
         return this.assess(command.action, command.args);
+      case 'assess_navigation':
+        return this.assessNavigation(command.args);
+      case 'prepare_navigation':
+        return this.prepareNavigation(command.args, command.fingerprint);
       case 'execute_action':
         return this.execute(command.action, command.args, command.approvedFingerprint);
       case 'scroll':
@@ -113,12 +128,82 @@ export class AgentPageController {
     };
   }
 
-  private assess(action: AgentPageAction, args: unknown[]): AgentActionAssessment {
+  private assess(action: AgentElementAction, args: unknown[]): AgentActionAssessment {
     return assessAgentAction(this.lastPageContent, action, this.getIndexArg(args));
   }
 
+  private assessNavigation(args: unknown[]): AgentNavigationAssessment {
+    const index = this.getIndexArg(args);
+    const label = findAgentElementDescriptor(this.lastPageContent, index) || `Element ${index}`;
+    const element = (this.getController() as unknown as PageControllerSelectorMap).selectorMap.get(index)?.ref;
+    const link = element?.closest?.('a[href], area[href]') as HTMLAnchorElement | HTMLAreaElement | null;
+    const blocked = (reason: string): AgentNavigationAssessment => ({
+      decision: 'block',
+      action: 'navigate',
+      index,
+      label,
+      reason,
+      fingerprint: `navigate:${index}:${label}`,
+      targetUrl: '',
+      sameOrigin: false,
+    });
+
+    if (!link) return blocked('The indexed element is not a navigable link.');
+    if (link.hasAttribute('download')) return blocked('Aid does not start downloads.');
+    if (link.target.toLowerCase() === '_blank') return blocked('Aid does not open or switch tabs during a run.');
+
+    let target: URL;
+    try {
+      target = new URL(link.href, window.location.href);
+    } catch {
+      return blocked('The link destination is invalid.');
+    }
+    if (!['http:', 'https:'].includes(target.protocol)) {
+      return blocked('Aid only navigates to http or https pages.');
+    }
+    if (target.username || target.password) {
+      return blocked('Aid does not navigate to URLs containing credentials.');
+    }
+    if (target.href === window.location.href) {
+      return blocked('The link points to the current page.');
+    }
+
+    const sameOrigin = target.origin === new URL(window.location.href).origin;
+    const consequential = requiresAgentActionConfirmation(label);
+    const safeTarget = ContextCollector.sanitizeUrl(target.href) || target.origin;
+    return {
+      decision: sameOrigin && !consequential ? 'allow' : 'confirm',
+      action: 'navigate',
+      index,
+      label: `${label} → ${safeTarget}`,
+      reason: consequential
+        ? 'This navigation may cause an external or irreversible change.'
+        : sameOrigin
+          ? 'This link stays on the current website.'
+          : 'This link opens another website and may share its readable page context with the selected provider.',
+      fingerprint: `navigate:${index}:${label}:${target.href}`,
+      targetUrl: target.href,
+      sameOrigin,
+    };
+  }
+
+  private async prepareNavigation(
+    args: unknown[],
+    fingerprint: string
+  ): Promise<AgentNavigationAssessment> {
+    await this.getBrowserState();
+    const assessment = this.assessNavigation(args);
+    if (assessment.fingerprint === fingerprint) return assessment;
+    return {
+      ...assessment,
+      decision: 'block',
+      reason: 'The page changed and the link destination is no longer the approved target.',
+      targetUrl: '',
+    };
+  }
+
   private async execute(
-    action: AgentPageAction,
+    action: AgentElementAction,
     args: unknown[],
     approvedFingerprint?: string
   ): Promise<AgentActionResult> {

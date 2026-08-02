@@ -40,7 +40,7 @@ export type FakeChatResponse =
     }
   | {
       kind: 'agent';
-      tool: 'click_element_by_index' | 'input_text' | 'select_dropdown_option' | 'done';
+      tool: 'click_element_by_index' | 'navigate_to_link' | 'input_text' | 'select_dropdown_option' | 'done';
       targetIndex?: number;
       targetText?: string;
       text?: string;
@@ -204,7 +204,7 @@ const writeFakeChatResponse = async (
           text: fakeResponse.text || 'Agent task complete.',
           success: fakeResponse.success ?? true,
         }
-      : fakeResponse.tool === 'click_element_by_index'
+      : fakeResponse.tool === 'click_element_by_index' || fakeResponse.tool === 'navigate_to_link'
         ? { index: targetIndex ?? 9999 }
         : {
             index: targetIndex ?? 9999,

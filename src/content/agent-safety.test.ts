@@ -27,7 +27,7 @@ describe('Agent page safety', () => {
     expect(sanitized).toContain('[redacted]');
   });
 
-  it('allows ordinary controls, confirms consequential actions, and blocks navigation', () => {
+  it('allows ordinary controls, confirms consequential actions, and routes links through navigation policy', () => {
     const content = 'Page *[1]<button>Open filters /> Consequential *[2]<button type=submit>Publish /> Blocked controls Account password *[3]<a>Next page />';
 
     expect(assessAgentAction(content, 'click', 1).decision).toBe('allow');

@@ -1,6 +1,6 @@
 import type {
   AgentActionAssessment,
-  AgentPageAction,
+  AgentElementAction,
 } from '@/shared/agent';
 import { ContextCollector } from '@/shared/context-collector';
 
@@ -60,9 +60,12 @@ export const findAgentElementDescriptor = (content: string, index: number): stri
   return tagName === 'input' ? candidate.slice(0, openingEnd + 1).trim() : candidate;
 };
 
+export const requiresAgentActionConfirmation = (label: string): boolean =>
+  /\btype=submit\b/i.test(label) || CONFIRM_ACTION_PATTERN.test(label);
+
 export const assessAgentAction = (
   content: string,
-  action: AgentPageAction,
+  action: AgentElementAction,
   index: number
 ): AgentActionAssessment => {
   const label = findAgentElementDescriptor(content, index);
@@ -96,12 +99,12 @@ export const assessAgentAction = (
       action,
       index,
       label,
-      reason: 'Navigation is disabled in current-page Agent mode.',
+      reason: 'Use the Agent navigation tool for links.',
       fingerprint,
     };
   }
 
-  if (action === 'click' && (/\btype=submit\b/i.test(label) || CONFIRM_ACTION_PATTERN.test(label))) {
+  if (action === 'click' && requiresAgentActionConfirmation(label)) {
     return {
       decision: 'confirm',
       action,
