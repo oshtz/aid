@@ -31,6 +31,12 @@ test.describe('Aid data disclosure', () => {
     await expect(panelPage.getByRole('button', { name: /Page context ready/ })).toBeVisible({ timeout: 15_000 });
     await expect(panelPage.locator('.context-inspector-summary')).toContainText('Quarterly Browser Automation Report');
 
+    await panelPage.getByRole('button', { name: 'Open settings' }).click();
+    const embeddedSettings = panelPage.frameLocator('iframe[title="Aid settings"]');
+    await expect(embeddedSettings.getByRole('heading', { name: 'Providers' })).toBeVisible();
+    await embeddedSettings.getByRole('button', { name: 'Back to chat' }).click();
+    await expect(panelPage.locator('.chat-input')).toBeVisible();
+
     const optionsPage = await aid.context.newPage();
     await optionsPage.goto(`chrome-extension://${aid.extensionId}/options/index.html`);
     await expect(optionsPage.getByRole('heading', { name: 'Providers' })).toBeVisible();

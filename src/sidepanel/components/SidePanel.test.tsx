@@ -141,4 +141,10 @@ describe('SidePanel browser lifecycle', () => {
     expect(source).toContain('content.permissionRequired === true');
     expect(source).not.toContain('/missing host permission/i');
   });
+
+  it('opens settings inside the side panel', () => {
+    expect(source).toContain("setShowSettings(true)");
+    expect(source).toContain("browser.runtime.getURL('options/index.html')");
+    expect(source).not.toContain('browser.runtime.openOptionsPage()');
+  });
 });

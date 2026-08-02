@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
+  ArrowLeft,
   CheckCircle2,
+  ChevronDown,
   Circle,
   Cloud,
   Cpu,
@@ -56,6 +58,7 @@ const themeOptions = [
 ];
 
 export const OptionsPage: React.FC = () => {
+  const isEmbedded = new URLSearchParams(window.location.search).has('embedded');
   const [settings, setSettings] = useState<ExtensionSettings>(defaultSettings);
   const [authMap, setAuthMap] = useState<ProviderAuthMap>({});
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -182,8 +185,6 @@ export const OptionsPage: React.FC = () => {
     () => providers.filter(providerId => isProviderReady(providerId)).length,
     [isProviderReady]
   );
-
-  const defaultProviderConfig = ProviderFactory.getProviderConfig(settings.defaultProvider as ProviderId);
 
   const updateAuth = (providerId: ProviderId, value: string) => {
     const config = ProviderFactory.getProviderConfig(providerId);
@@ -435,6 +436,10 @@ export const OptionsPage: React.FC = () => {
     setMessage({ type: 'info', text: 'All provider configuration cleared. Save to apply.' });
   };
 
+  const closeEmbeddedSettings = () => {
+    window.parent.postMessage({ type: 'AID_CLOSE_SETTINGS' }, window.location.origin);
+  };
+
   const acceptDataDisclosure = async (pageAccess: PageAccessChoice): Promise<boolean> => {
     setIsAcceptingDisclosure(true);
 
@@ -479,16 +484,24 @@ export const OptionsPage: React.FC = () => {
   const MessageIcon = message?.type === 'error' ? AlertCircle : message?.type === 'success' ? CheckCircle2 : Wifi;
 
   return (
-    <main className="settings-shell">
+    <main className={`settings-shell ${isEmbedded ? 'embedded' : ''}`}>
       <div className="settings-frame">
         <header className="settings-header">
           <div className="brand-lockup">
-            <span className="logo-frame">
-              <img src={logoUrl} alt="Aid" />
-            </span>
+            {isEmbedded ? (
+              <button className="icon-btn" type="button" onClick={closeEmbeddedSettings} aria-label="Back to chat">
+                <ArrowLeft size={17} />
+              </button>
+            ) : (
+              <span className="logo-frame">
+                <img src={logoUrl} alt="Aid" />
+              </span>
+            )}
             <span>
-              <span className="brand-title">Aid</span>
-              <span className="brand-subtitle">Settings</span>
+              <span className="brand-title">{isEmbedded ? 'Settings' : 'Aid'}</span>
+              <span className="brand-subtitle">
+                {isEmbedded ? `${configuredCount} of ${providers.length} providers ready` : 'Settings'}
+              </span>
             </span>
           </div>
 
@@ -516,21 +529,6 @@ export const OptionsPage: React.FC = () => {
 
         <div className="settings-layout">
           <aside className="settings-rail">
-            <section className="summary-panel">
-              <div className="summary-row">
-                <span>Default</span>
-                <strong>{defaultProviderConfig?.name || settings.defaultProvider}</strong>
-              </div>
-              <div className="summary-row">
-                <span>Providers</span>
-                <strong>{configuredCount}/{providers.length}</strong>
-              </div>
-              <div className="summary-row">
-                <span>Storage</span>
-                <strong>{settings.sessionOnly ? 'Session' : 'Browser profile'}</strong>
-              </div>
-            </section>
-
             <section className="setting-card">
               <div className="setting-heading">
                 <ShieldCheck size={17} />
@@ -679,8 +677,11 @@ export const OptionsPage: React.FC = () => {
                 const modelPresets = getProviderModelPresets(providerId);
 
                 return (
-                  <article key={providerId} className={`provider-card ${isReady ? 'is-ready' : ''}`}>
-                    <div className="provider-topline">
+                  <details
+                    key={providerId}
+                    className={`provider-card ${isReady ? 'is-ready' : ''}`}
+                  >
+                    <summary className="provider-topline">
                       <div className="provider-title">
                         <span className="provider-icon">
                           <ProviderIcon size={18} />
@@ -693,8 +694,9 @@ export const OptionsPage: React.FC = () => {
                       <span className={`provider-ready ${isReady ? 'active' : ''}`}>
                         {isReady ? <CheckCircle2 size={16} /> : <Circle size={16} />}
                         {isReady ? 'Ready' : 'Needs key'}
+                        <ChevronDown className="provider-disclosure" size={14} />
                       </span>
-                    </div>
+                    </summary>
 
                     <div className="provider-fields">
                       {config.authType !== 'none' && (
@@ -845,7 +847,7 @@ export const OptionsPage: React.FC = () => {
                         </button>
                       </div>
                     )}
-                  </article>
+                  </details>
                 );
               })}
             </div>

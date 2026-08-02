@@ -439,6 +439,7 @@ export const SidePanel: React.FC = () => {
   const [agentActivity, setAgentActivity] = useState<AgentActivity | null>(null);
   const [pendingAgentApproval, setPendingAgentApproval] = useState<AgentActionAssessment | null>(null);
   const [showChatHistory, setShowChatHistory] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>();
   const [activePanel, setActivePanel] = useState<PanelName | null>(null);
   const [providerConnectionIssue, setProviderConnectionIssue] = useState<ProviderId | null>(null);
@@ -497,6 +498,17 @@ export const SidePanel: React.FC = () => {
   useEffect(() => () => {
     agentApprovalResolverRef.current?.(false);
     void agentRunRef.current?.stop();
+  }, []);
+
+  useEffect(() => {
+    const closeEmbeddedSettings = (event: MessageEvent) => {
+      if (event.origin === window.location.origin && event.data?.type === 'AID_CLOSE_SETTINGS') {
+        setShowSettings(false);
+      }
+    };
+
+    window.addEventListener('message', closeEmbeddedSettings);
+    return () => window.removeEventListener('message', closeEmbeddedSettings);
   }, []);
 
   useEffect(() => {
@@ -1710,7 +1722,7 @@ export const SidePanel: React.FC = () => {
   const openSettings = () => {
     closePanel();
     setShowChatHistory(false);
-    void browser.runtime.openOptionsPage();
+    setShowSettings(true);
   };
 
   const handlePinCurrentPage = async () => {
@@ -2357,6 +2369,16 @@ export const SidePanel: React.FC = () => {
       <div className="disclosure-screen">
         <DataDisclosure onAccept={acceptDataDisclosure} isSaving={isAcceptingDisclosure} />
       </div>
+    );
+  }
+
+  if (showSettings) {
+    return (
+      <iframe
+        className="embedded-settings-view"
+        src={`${browser.runtime.getURL('options/index.html')}?embedded=1`}
+        title="Aid settings"
+      />
     );
   }
 
