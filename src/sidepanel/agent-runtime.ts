@@ -517,7 +517,7 @@ export class AidAgentRun {
 }
 
 export const describeAgentActivity = (activity: AgentActivity | null): string => {
-  if (!activity || activity.type === 'thinking') return 'Inspecting the page';
+  if (!activity || activity.type === 'thinking') return 'Choosing the next action';
   if (activity.type === 'retrying') return `Retrying model call ${activity.attempt}/${activity.maxAttempts}`;
   if (activity.type === 'error') return activity.message;
   if (activity.type === 'executed') return `${activity.tool.replaceAll('_', ' ')} completed`;

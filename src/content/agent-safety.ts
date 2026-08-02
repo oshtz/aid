@@ -9,6 +9,7 @@ const SENSITIVE_FIELD_PATTERN =
 const CONFIRM_ACTION_PATTERN =
   /\b(submit|send|publish|post|delete|remove|archive|unsubscribe|buy|purchase|order|checkout|pay|transfer|book|reserve|sign[ -]?in|log[ -]?in|sign[ -]?up|create account|authorize|allow access|connect account)\b/i;
 const VALUE_ATTRIBUTE_PATTERN = /\svalue=(?:"[^"]*"|'[^']*'|.*?)(?=\s(?:title|type|checked|name|role|placeholder|data-[\w-]+|alt|aria-[\w-]+|id|for|target|contenteditable)=|>)/gi;
+export const MAX_AGENT_PAGE_CONTENT_CHARS = 32_000;
 
 export const SENSITIVE_ELEMENT_SELECTOR = [
   'input[type="password"]',
@@ -23,7 +24,7 @@ export const sanitizeAgentPageContent = (content: string): string => ContextColl
     .split('\n')
     .map((line) => line.replace(VALUE_ATTRIBUTE_PATTERN, ''))
     .join('\n')
-);
+).slice(0, MAX_AGENT_PAGE_CONTENT_CHARS);
 
 export const findAgentElementDescriptor = (content: string, index: number): string => {
   const marker = new RegExp(`\\*?\\[${index}\\]`);

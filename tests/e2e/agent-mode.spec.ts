@@ -208,12 +208,17 @@ test.describe('Aid same-tab Agent mode', () => {
     });
     providerServer.queueChatResponse({
       kind: 'agent',
+      tool: 'click_element_by_index',
+      targetText: 'Open details',
+    });
+    providerServer.queueChatResponse({
+      kind: 'agent',
       tool: 'done',
-      text: 'The research page is open.',
+      text: 'The research details are open.',
     });
     const { fixturePage, panelPage } = await openAgentPanel(aid, fixtureServer);
 
-    await startAgentTask(panelPage, 'Go to the next page');
+    await startAgentTask(panelPage, 'Go to the next page and open details');
 
     await expect(panelPage.locator('.agent-approval')).toHaveCount(0);
     await expect(fixturePage).toHaveURL(`${fixtureServer.origin}/research-page.html`, {
@@ -221,12 +226,16 @@ test.describe('Aid same-tab Agent mode', () => {
     });
     const secondRequest = await providerServer.waitForChatRequestAt(1);
     expect(JSON.stringify(secondRequest)).toContain('Quarterly Browser Automation Report');
-    await expect(panelPage.locator('.assistant-message').last()).toContainText('The research page is open.', {
+    await expect(fixturePage.locator('#details-status')).toHaveText('Details opened');
+    const thirdRequest = await providerServer.waitForChatRequestAt(2);
+    expect(JSON.stringify(thirdRequest)).toContain('Details opened');
+    await expect(panelPage.locator('.assistant-message').last()).toContainText('The research details are open.', {
       timeout: AGENT_RESULT_TIMEOUT,
     });
     const receipt = panelPage.locator('.agent-receipt-card').last();
     await receipt.locator('summary').click();
     await expect(receipt).toContainText('navigate');
+    await expect(receipt).toContainText('click');
     await expect(receipt).toContainText('completed');
   });
 

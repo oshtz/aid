@@ -6,6 +6,7 @@ vi.mock('webextension-polyfill', () => ({
 
 import {
   assessAgentAction,
+  MAX_AGENT_PAGE_CONTENT_CHARS,
   markSensitiveAgentElements,
   sanitizeAgentPageContent,
 } from './agent-safety';
@@ -25,6 +26,12 @@ describe('Agent page safety', () => {
     expect(sanitized).not.toContain('hunter2');
     expect(sanitized).not.toContain('sk-abcdefghijklmnopqrstuvwxyz1234');
     expect(sanitized).toContain('[redacted]');
+  });
+
+  it('caps dense page observations to the shared 8,000-token envelope', () => {
+    expect(sanitizeAgentPageContent('visible '.repeat(10_000))).toHaveLength(
+      MAX_AGENT_PAGE_CONTENT_CHARS
+    );
   });
 
   it('allows ordinary controls, confirms consequential actions, and routes links through navigation policy', () => {

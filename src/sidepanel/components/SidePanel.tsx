@@ -2516,7 +2516,7 @@ export const SidePanel: React.FC = () => {
                   <span className="agent-run-icon"><MousePointerClick size={16} /></span>
                   <div>
                     <strong>{describeAgentActivity(agentActivity)}</strong>
-                    <small>Step {Math.max(agentStep, 1)} of 12 · current page only</small>
+                    <small>Step {Math.max(agentStep, 1)} of 12 · controlled tab</small>
                   </div>
                 </article>
               )}
