@@ -7,7 +7,11 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: extension-release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   package:
@@ -43,4 +47,17 @@ jobs:
           name: aid-extension-packages
           path: |
             artifacts/*.zip
+            artifacts/SHA256SUMS-*.txt
           if-no-files-found: error
+
+      - name: Create GitHub release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          artifacts/*.zip
+          artifacts/SHA256SUMS-*.txt
+          --verify-tag
+          --generate-notes
+          --latest

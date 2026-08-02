@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import JSZip from 'jszip';
 import { describe, expect, it } from 'vitest';
 
@@ -48,9 +49,9 @@ describe('release provenance', () => {
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
-  it('opens both packages and verifies their browser-specific manifests', async () => {
+  it('opens release packages and verifies manifests and checksums', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'aid-release-artifacts-'));
     const version = '0.2.0';
     const writePackage = async (target: 'chrome' | 'firefox', manifest: object) => {
@@ -59,6 +60,18 @@ describe('release provenance', () => {
       writeFileSync(
         join(cwd, `artifacts/aid-${target}-${version}.zip`),
         await zip.generateAsync({ type: 'nodebuffer' })
+      );
+    };
+    const writeChecksums = () => {
+      const files = ['aid-chrome-0.2.0.zip', 'aid-firefox-0.2.0.zip', 'aid-source-0.2.0.zip'];
+      writeFileSync(
+        join(cwd, 'artifacts/SHA256SUMS-0.2.0.txt'),
+        `${files
+          .map((file) => {
+            const path = join(cwd, 'artifacts', file);
+            return `${createHash('sha256').update(readFileSync(path)).digest('hex')}  ${basename(path)}`;
+          })
+          .join('\n')}\n`
       );
     };
 
@@ -71,6 +84,14 @@ describe('release provenance', () => {
         browser_specific_settings: { gecko: { id: 'aid-test' } },
         background: { scripts: ['background/service-worker.js'] },
       });
+      const source = new JSZip();
+      source.file('package.json', JSON.stringify({ version }));
+      source.file('AMO_SOURCE_README.md', '# Source build');
+      writeFileSync(
+        join(cwd, `artifacts/aid-source-${version}.zip`),
+        await source.generateAsync({ type: 'nodebuffer' })
+      );
+      writeChecksums();
 
       expect(run(process.execPath, [artifactCheckScript], cwd)).toBe(true);
 
@@ -79,18 +100,33 @@ describe('release provenance', () => {
         browser_specific_settings: { gecko: { id: 'wrong-target' } },
         background: { scripts: ['background/service-worker.js'] },
       });
+      writeChecksums();
       expect(run(process.execPath, [artifactCheckScript], cwd)).toBe(false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
   });
 
-  it('checks out the requested release tag and rejects dirty package sources', () => {
-    const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/publish-stores.yml'), 'utf8');
+  it('checks out immutable release sources and wires every release artifact', () => {
+    const storeWorkflow = readFileSync(
+      resolve(process.cwd(), '.github/workflows/publish-stores.yml'),
+      'utf8'
+    );
+    const releaseWorkflow = readFileSync(
+      resolve(process.cwd(), '.github/workflows/extension-artifacts.yml'),
+      'utf8'
+    );
     const packager = readFileSync(resolve(process.cwd(), 'tools/package-extension.js'), 'utf8');
+    const releasePackager = readFileSync(
+      resolve(process.cwd(), 'tools/package-release-artifacts.js'),
+      'utf8'
+    );
 
-    expect(workflow).toContain('ref: ${{ inputs.release_tag || github.ref }}');
-    expect(workflow).toContain('fetch-depth: 0');
+    expect(storeWorkflow).toContain('ref: ${{ inputs.release_tag || github.ref }}');
+    expect(storeWorkflow).toContain('fetch-depth: 0');
+    expect(storeWorkflow).toContain('--upload-source-code "$SOURCE_CODE"');
+    expect(releaseWorkflow).toContain('gh release create "$GITHUB_REF_NAME"');
     expect(packager).toContain("git', ['status', '--porcelain', '--untracked-files=all']");
+    expect(releasePackager).toContain("git', ['archive'");
   });
 });

@@ -9,7 +9,7 @@
     "build": "npm run build:chrome",
     "build:chrome": "tsc && vite build && npm run validate:build",
     "build:firefox": "tsc && node build-firefox.js && npm run validate:build",
-    "package": "npm run package:chrome && npm run package:firefox && npm run check:artifacts",
+    "package": "npm run package:chrome && npm run package:firefox && node tools/package-release-artifacts.js && npm run check:artifacts",
     "package:chrome": "npm run build:chrome && node tools/package-extension.js chrome",
     "package:firefox": "npm run build:firefox && npm run lint:firefox && node tools/package-extension.js firefox",
     "validate:build": "node validate-build.js",

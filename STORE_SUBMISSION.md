@@ -46,9 +46,9 @@ Agent Beta note:
 - [ ] Confirm package, Chrome manifest, Firefox manifest, and intended tag use the same version.
 - [ ] Run `npm run release:check` from a clean source commit.
 - [ ] Inspect both ZIP manifests and verify browser target, permissions, CSP, and version.
-- [ ] Create `artifacts/aid-source-<version>.zip` from the exact clean release commit with `git archive --format=zip --output=artifacts/aid-source-<version>.zip HEAD`.
+- [ ] Confirm `npm run package` created `artifacts/aid-source-<version>.zip` from the exact clean release commit.
 - [ ] Extract the source archive, run the commands in `AMO_SOURCE_README.md`, and confirm the resulting `dist/` paths and file contents match the Firefox ZIP.
-- [ ] Generate `artifacts/SHA256SUMS-<version>.txt` for the Chrome, Firefox, and source ZIPs after their final bytes are produced.
+- [ ] Verify `artifacts/SHA256SUMS-<version>.txt` covers the Chrome, Firefox, and source ZIPs.
 - [ ] Update the Chrome privacy dashboard with every category and the copy above before upload.
 - [ ] Confirm the public privacy-policy URL contains the same wording before submission.
 - [ ] Upload the Chrome ZIP and complete Chrome review questions.

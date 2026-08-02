@@ -37,6 +37,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: store-release-${{ inputs.release_tag || github.ref }}-${{ inputs.target }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -91,7 +95,9 @@ jobs:
           FIREFOX_AMO_APPROVAL_TIMEOUT_MS: ${{ inputs.firefox_approval_timeout_ms }}
         run: |
           node tools/assert-store-env.js firefox
-          node tools/publish-firefox-amo.js --channel "$FIREFOX_AMO_CHANNEL" --approval-timeout "$FIREFOX_AMO_APPROVAL_TIMEOUT_MS"
+          SOURCE_CODE="$(find artifacts -maxdepth 1 -name 'aid-source-*.zip' -print -quit)"
+          test -n "$SOURCE_CODE"
+          node tools/publish-firefox-amo.js --channel "$FIREFOX_AMO_CHANNEL" --approval-timeout "$FIREFOX_AMO_APPROVAL_TIMEOUT_MS" --upload-source-code "$SOURCE_CODE"
 
       - name: Upload store release outputs
         uses: actions/upload-artifact@v4
@@ -99,5 +105,6 @@ jobs:
           name: aid-store-release-${{ github.run_number }}
           path: |
             artifacts/*.zip
+            artifacts/SHA256SUMS-*.txt
             artifacts/firefox-signed/*
           if-no-files-found: ignore
