@@ -200,8 +200,8 @@ class AidRemotePageController {
     }
   }
 
-  get isNavigating(): boolean {
-    return this.navigationInProgress;
+  acceptsNavigationUpdate(url: string): boolean {
+    return this.navigationInProgress || url === this.currentUrl;
   }
 
   private navigationInProgress = false;
@@ -372,7 +372,7 @@ export class AidAgentRun {
     tabId: number,
     changeInfo: browser.Tabs.OnUpdatedChangeInfoType
   ) => {
-    if (tabId === this.tabId && changeInfo.url && !this.controller.isNavigating) {
+    if (tabId === this.tabId && changeInfo.url && !this.controller.acceptsNavigationUpdate(changeInfo.url)) {
       this.interrupt('Navigation stopped the current-page Agent run.');
     }
   };

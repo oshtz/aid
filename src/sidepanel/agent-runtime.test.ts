@@ -141,6 +141,7 @@ describe('AidAgentRun lifecycle', () => {
         { signal: new AbortController().signal }
       );
       expect(output).toContain('Navigated the current tab');
+      browserState.updated.forEach((listener) => listener(7, { url: browserState.tab.url }));
       return { success: true, data: 'done', history: [] };
     });
     const run = createRun();
