@@ -333,10 +333,34 @@ test.describe('Aid same-tab Agent mode', () => {
       text: 'This should never render.',
       delayMs: 5_000,
     });
-    const { panelPage } = await openAgentPanel(aid, fixtureServer);
+    const { fixturePage, panelPage } = await openAgentPanel(aid, fixtureServer);
 
     await startAgentTask(panelPage, 'Wait for a slow action');
     await providerServer.waitForChatRequestAt(0);
+    const mask = fixturePage.locator('#page-agent-runtime_simulator-mask');
+    await expect(mask).toBeVisible();
+    const visuals = await mask.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const cursor = element.lastElementChild;
+      const canvas = element.querySelector('canvas');
+      const glow = getComputedStyle(element, '::before');
+      return {
+        accent: style.getPropertyValue('--aid-agent-accent').trim(),
+        cursorSize: style.getPropertyValue('--cursor-size').trim(),
+        renderedCursorWidth: cursor ? getComputedStyle(cursor).width : '',
+        canvasDisplay: canvas ? getComputedStyle(canvas).display : 'none',
+        glowBorderWidth: glow.borderTopWidth,
+        hasGlow: glow.boxShadow !== 'none',
+      };
+    });
+    expect(visuals).toEqual({
+      accent: '#3b82f6',
+      cursorSize: '42px',
+      renderedCursorWidth: '42px',
+      canvasDisplay: 'none',
+      glowBorderWidth: '5px',
+      hasGlow: true,
+    });
     await panelPage.getByRole('button', { name: 'Stop agent task' }).click();
 
     await expect(panelPage.locator('.agent-run-card')).toHaveCount(0);

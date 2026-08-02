@@ -14,7 +14,10 @@ const pageControllerState = vi.hoisted(() => ({
 }));
 
 vi.mock('webextension-polyfill', () => ({
-  default: { runtime: { id: 'aid-extension' } },
+  default: {
+    runtime: { id: 'aid-extension' },
+    storage: { local: { get: vi.fn(async () => ({ 'aid-accent-color': '#14b8a6' })) } },
+  },
 }));
 
 vi.mock('@page-agent/page-controller', () => ({
@@ -51,7 +54,13 @@ describe('AgentPageController', () => {
       footer: '[End of page]',
     };
     vi.stubGlobal('window', { location: { href: initialUrl } });
-    vi.stubGlobal('document', { querySelectorAll: () => [] });
+    const style = { id: '', textContent: '', remove: vi.fn() };
+    vi.stubGlobal('document', {
+      querySelectorAll: () => [],
+      getElementById: (id: string) => (style.id === id ? style : null),
+      createElement: () => style,
+      head: { appendChild: vi.fn() },
+    });
   });
 
   it('rejects unknown senders and stale run IDs', async () => {

@@ -8,6 +8,7 @@ import type {
   AgentNavigationAssessment,
   AgentPageControlMessage,
 } from '@/shared/agent';
+import { AID_ACCENT_STORAGE_KEY, normalizeAccentColor } from '@/shared/accent';
 import { ContextCollector } from '@/shared/context-collector';
 import {
   assessAgentAction,
@@ -27,6 +28,77 @@ interface PageControllerSelectorMap {
 }
 
 const failedAction = (message: string): AgentActionResult => ({ success: false, message });
+const AID_AGENT_MASK_STYLE_ID = 'aid-agent-mask-theme';
+
+const applyAidAgentMaskTheme = (accentColor: string): void => {
+  document.getElementById(AID_AGENT_MASK_STYLE_ID)?.remove();
+  const style = document.createElement('style');
+  style.id = AID_AGENT_MASK_STYLE_ID;
+  style.textContent = `
+#page-agent-runtime_simulator-mask {
+  --aid-agent-accent: ${accentColor};
+  --cursor-size: 42px;
+  cursor: progress;
+}
+
+#page-agent-runtime_simulator-mask > canvas {
+  display: none !important;
+}
+
+#page-agent-runtime_simulator-mask::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 5px solid transparent;
+  border-image: linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--aid-agent-accent) 42%, white),
+    var(--aid-agent-accent),
+    color-mix(in srgb, var(--aid-agent-accent) 72%, #0f172a)
+  ) 1;
+  box-shadow:
+    inset 0 0 36px color-mix(in srgb, var(--aid-agent-accent) 52%, transparent),
+    inset 0 0 120px color-mix(in srgb, var(--aid-agent-accent) 30%, transparent),
+    inset 0 0 220px color-mix(in srgb, var(--aid-agent-accent) 16%, transparent);
+  animation: aid-agent-glow 1.8s ease-in-out infinite alternate;
+}
+
+#page-agent-runtime_simulator-mask > div:last-child {
+  filter:
+    drop-shadow(0 2px 3px rgba(15, 23, 42, 0.35))
+    drop-shadow(0 0 7px color-mix(in srgb, var(--aid-agent-accent) 50%, transparent));
+}
+
+#page-agent-runtime_simulator-mask > div:last-child > div:nth-child(n + 2) {
+  margin-left: -6px;
+  margin-top: -10px;
+}
+
+#page-agent-runtime_simulator-mask > div:last-child > div:last-child {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--aid-agent-accent) 45%, white),
+    var(--aid-agent-accent)
+  ) !important;
+}
+
+#page-agent-runtime_simulator-mask > div:last-child > div:first-child::after {
+  border-color: var(--aid-agent-accent) !important;
+  border-width: 2px !important;
+}
+
+@keyframes aid-agent-glow {
+  from { opacity: 0.82; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #page-agent-runtime_simulator-mask::before { animation: none; }
+}
+`;
+  document.head.appendChild(style);
+};
 
 export class AgentPageController {
   private controller: PageController | null = null;
@@ -89,6 +161,11 @@ export class AgentPageController {
       throw new Error('The active page changed before Agent mode started.');
     }
 
+    const stored = (await browser.storage.local
+      .get(AID_ACCENT_STORAGE_KEY)
+      .catch(() => ({}))) as Record<string, unknown>;
+    const accent = stored[AID_ACCENT_STORAGE_KEY];
+    applyAidAgentMaskTheme(normalizeAccentColor(typeof accent === 'string' ? accent : undefined));
     this.activeRunId = runId;
     this.initialUrl = initialUrl;
     this.controller = new PageController({
@@ -260,6 +337,7 @@ export class AgentPageController {
 
   cleanup(): void {
     this.controller?.dispose();
+    document.getElementById(AID_AGENT_MASK_STYLE_ID)?.remove();
     this.controller = null;
     this.activeRunId = '';
     this.initialUrl = '';
