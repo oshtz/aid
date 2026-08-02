@@ -176,6 +176,36 @@ test.describe('Aid same-tab Agent mode', () => {
     await expect(receipt).toContainText('approved');
   });
 
+  test('continues after an approved click navigates the controlled tab', async () => {
+    providerServer.queueChatResponse({
+      kind: 'agent',
+      tool: 'click_element_by_index',
+      targetText: 'Authorize and continue',
+    });
+    providerServer.queueChatResponse({
+      kind: 'agent',
+      tool: 'done',
+      text: 'The destination page is ready.',
+    });
+    const { fixturePage, panelPage } = await openAgentPanel(aid, fixtureServer);
+
+    await startAgentTask(panelPage, 'Authorize the action and continue on the destination page');
+    await expect(panelPage.locator('.agent-approval')).toContainText('Authorize and continue', {
+      timeout: AGENT_RESULT_TIMEOUT,
+    });
+    await panelPage.getByRole('button', { name: 'Approve once' }).click();
+
+    await expect(fixturePage).toHaveURL(`${fixtureServer.origin}/research-page.html`, {
+      timeout: AGENT_RESULT_TIMEOUT,
+    });
+    const secondRequest = await providerServer.waitForChatRequestAt(1);
+    expect(JSON.stringify(secondRequest)).toContain('Quarterly Browser Automation Report');
+    await expect(panelPage.locator('.assistant-message').last()).toContainText(
+      'The destination page is ready.',
+      { timeout: AGENT_RESULT_TIMEOUT }
+    );
+  });
+
   test('keeps the page unchanged when approval is denied', async () => {
     providerServer.queueChatResponse({
       kind: 'agent',

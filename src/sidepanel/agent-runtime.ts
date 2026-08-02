@@ -125,21 +125,11 @@ class AidRemotePageController {
       this.navigationInProgress = true;
       await browser.tabs.update(this.tabId, { url: prepared.targetUrl });
       const tab = await this.waitForLoadedTab(signal);
-      if (!tab.url || !/^https?:\/\//i.test(tab.url)) {
-        throw new Error('Aid only navigates to http or https pages.');
-      }
-      if (new URL(tab.url).origin !== new URL(prepared.targetUrl).origin) {
-        throw new Error('The destination redirected to another website; Aid stopped before reading it.');
-      }
-      const contextResult = await MessageHandler.getTabContextForTab(this.tabId);
-      const diagnostic = contextResult.diagnostics?.content.find((entry) => entry.tabId === this.tabId);
-      if (contextResult.error || diagnostic?.permissionRequired || diagnostic?.contextOk !== true) {
-        throw new Error(diagnostic?.permissionRequired
-          ? 'Aid needs permission to read the destination website.'
-          : contextResult.error || 'Aid could not reconnect to the destination page.');
-      }
-      this.currentUrl = tab.url;
-      await this.sendWithoutTabCheck({ command: 'start', initialUrl: this.currentUrl });
+      const redirectApproved = await this.connectToLoadedTab(
+        tab,
+        assessment.decision === 'confirm' ? new URL(prepared.targetUrl).origin : undefined
+      );
+      if (redirectApproved) approvalState = 'approved';
       this.recordStep('navigate', targetLabel, 'completed', approvalState, startedAt);
       return `Navigated the current tab to ${sanitizePageUrl(this.currentUrl) || 'the destination page'}.`;
     } catch (error) {
@@ -148,6 +138,7 @@ class AidRemotePageController {
       return `Navigation failed: ${failure}`;
     } finally {
       this.navigationInProgress = false;
+      this.pendingNavigationUrl = '';
     }
   }
 
@@ -201,10 +192,15 @@ class AidRemotePageController {
   }
 
   acceptsNavigationUpdate(url: string): boolean {
-    return this.navigationInProgress || url === this.currentUrl;
+    if (url === this.currentUrl) return true;
+    if (!this.navigationInProgress && !this.pageActionInProgress) return false;
+    this.pendingNavigationUrl = url;
+    return true;
   }
 
   private navigationInProgress = false;
+  private pageActionInProgress = false;
+  private pendingNavigationUrl = '';
 
   private async runAction(action: AgentElementAction, args: unknown[]): Promise<AgentActionResult> {
     const startedAt = Date.now();
@@ -238,12 +234,20 @@ class AidRemotePageController {
         approvedFingerprint = assessment.fingerprint;
       }
 
-      const result = await this.send<AgentActionResult>({
-        command: 'execute_action',
-        action,
-        args,
-        ...(approvedFingerprint ? { approvedFingerprint } : {}),
-      });
+      this.pageActionInProgress = action === 'click';
+      let result: AgentActionResult;
+      try {
+        result = await this.send<AgentActionResult>({
+          command: 'execute_action',
+          action,
+          args,
+          ...(approvedFingerprint ? { approvedFingerprint } : {}),
+        });
+      } catch (error) {
+        if (action !== 'click' || !(await this.reconnectAfterPageAction())) throw error;
+        result = { success: true, message: 'The click navigated the controlled tab.' };
+      }
+      if (action === 'click') await this.reconnectAfterPageAction();
       this.recordStep(
         action,
         targetLabel,
@@ -263,7 +267,62 @@ class AidRemotePageController {
         'Page action failed.'
       );
       throw error;
+    } finally {
+      this.pageActionInProgress = false;
+      this.pendingNavigationUrl = '';
     }
+  }
+
+  private async reconnectAfterPageAction(): Promise<boolean> {
+    let tab = await browser.tabs.get(this.tabId);
+    const deadline = Date.now() + 500;
+    while (!this.pendingNavigationUrl && tab.url === this.currentUrl && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      tab = await browser.tabs.get(this.tabId);
+    }
+    if (!this.pendingNavigationUrl && tab.url === this.currentUrl) return false;
+    if (tab.status !== 'complete') tab = await this.waitForLoadedTab();
+    if (!tab.url || tab.url === this.currentUrl) return false;
+    await this.connectToLoadedTab(tab);
+    return true;
+  }
+
+  private async connectToLoadedTab(
+    tab: browser.Tabs.Tab,
+    approvedOrigin?: string
+  ): Promise<boolean> {
+    if (!tab.url || !/^https?:\/\//i.test(tab.url)) {
+      throw new Error('Aid only navigates to http or https pages.');
+    }
+
+    const sameOrigin = new URL(tab.url).origin === new URL(this.currentUrl).origin;
+    const needsApproval = !sameOrigin && new URL(tab.url).origin !== approvedOrigin;
+    if (needsApproval) {
+      const safeTarget = sanitizePageUrl(tab.url) || new URL(tab.url).origin;
+      const assessment: AgentNavigationAssessment = {
+        decision: 'confirm',
+        action: 'navigate',
+        index: -1,
+        label: `Continue on ${safeTarget}`,
+        reason: 'The click opened another website and may share its readable page context with the selected provider.',
+        fingerprint: `navigate:click:${tab.url}`,
+        targetUrl: tab.url,
+        sameOrigin: false,
+      };
+      const approved = await this.onApproval(assessment);
+      if (!approved) throw new Error('The user denied continuing on the destination website.');
+    }
+
+    const contextResult = await MessageHandler.getTabContextForTab(this.tabId);
+    const diagnostic = contextResult.diagnostics?.content.find((entry) => entry.tabId === this.tabId);
+    if (contextResult.error || diagnostic?.permissionRequired || diagnostic?.contextOk !== true) {
+      throw new Error(diagnostic?.permissionRequired
+        ? 'Aid needs permission to read the destination website.'
+        : contextResult.error || 'Aid could not reconnect to the destination page.');
+    }
+    this.currentUrl = tab.url;
+    await this.sendWithoutTabCheck({ command: 'start', initialUrl: this.currentUrl });
+    return needsApproval;
   }
 
   private async runSimpleAction(
@@ -329,10 +388,11 @@ class AidRemotePageController {
     return browser.tabs.sendMessage(this.tabId, message) as Promise<T>;
   }
 
-  private async waitForLoadedTab(signal: AbortSignal): Promise<browser.Tabs.Tab> {
+  private async waitForLoadedTab(signal?: AbortSignal): Promise<browser.Tabs.Tab> {
     const deadline = Date.now() + 15_000;
     while (Date.now() < deadline) {
-      signal.throwIfAborted();
+      signal?.throwIfAborted();
+      if (this.isRunStopping()) throw new Error('The Agent run stopped.');
       const tab = await browser.tabs.get(this.tabId);
       if (tab.status === 'complete' && tab.url) return tab;
       await new Promise((resolve) => setTimeout(resolve, 100));

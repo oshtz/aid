@@ -18,6 +18,8 @@ const browserState = vi.hoisted(() => {
     removed,
     tab: { id: 7, active: true, status: 'complete', url: 'https://example.com/' },
     redirectUrl: '',
+    clickNavigationUrl: '',
+    clickNavigationDelayMs: 0,
   };
 });
 
@@ -66,6 +68,13 @@ vi.mock('webextension-polyfill', () => ({
             sameOrigin: true,
           };
         }
+        if (command === 'execute_action' && browserState.clickNavigationUrl) {
+          setTimeout(() => {
+            browserState.tab.url = browserState.clickNavigationUrl;
+            browserState.updated.forEach((listener) => listener(7, { url: browserState.tab.url }));
+          }, browserState.clickNavigationDelayMs);
+          return { success: true, message: 'Clicked' };
+        }
         return { success: true };
       }),
       onActivated: {
@@ -108,6 +117,8 @@ describe('AidAgentRun lifecycle', () => {
     browserState.removed.clear();
     browserState.tab = { id: 7, active: true, status: 'complete', url: 'https://example.com/' };
     browserState.redirectUrl = '';
+    browserState.clickNavigationUrl = '';
+    browserState.clickNavigationDelayMs = 0;
     pageAgentState.config = null;
     pageAgentState.execute.mockResolvedValue({ success: true, data: 'done', history: [] });
   });
@@ -152,7 +163,26 @@ describe('AidAgentRun lifecycle', () => {
     expect(browserState.activated.size + browserState.updated.size + browserState.removed.size).toBe(0);
   });
 
-  it('does not read a redirect to an unapproved website', async () => {
+  it('continues when an approved page click navigates the controlled tab', async () => {
+    browserState.clickNavigationUrl = 'https://example.com/next';
+    browserState.clickNavigationDelayMs = 25;
+    pageAgentState.execute.mockImplementation(async () => {
+      const pageController = pageAgentState.config?.pageController as {
+        clickElement: (index: number) => Promise<{ success: boolean }>;
+      };
+      await expect(pageController.clickElement(3)).resolves.toMatchObject({ success: true });
+      return { success: true, data: 'done', history: [] };
+    });
+    const run = createRun();
+
+    await expect(run.execute('Click and continue')).resolves.toMatchObject({ success: true });
+    expect(browserState.tab.url).toBe('https://example.com/next');
+    expect(pageAgentState.stop).not.toHaveBeenCalled();
+    expect(browser.runtime.sendMessage).toHaveBeenCalledOnce();
+    expect(browserState.activated.size + browserState.updated.size + browserState.removed.size).toBe(0);
+  });
+
+  it('does not read a redirect to a website the user denied', async () => {
     browserState.redirectUrl = 'https://redirected.example/';
     pageAgentState.execute.mockImplementation(async () => {
       const customTools = pageAgentState.config?.customTools as Record<string, {
@@ -164,7 +194,7 @@ describe('AidAgentRun lifecycle', () => {
         { index: 3 },
         { signal: new AbortController().signal }
       );
-      expect(output).toContain('redirected to another website');
+      expect(output).toContain('user denied continuing');
       return { success: false, data: output, history: [] };
     });
     const run = createRun();

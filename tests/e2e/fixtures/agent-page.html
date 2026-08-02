@@ -19,6 +19,7 @@
       <section>
         <h2>Safe controls</h2>
         <button id="open-filters" type="button">Open filters</button>
+        <button id="authorize-navigation" type="button">Authorize and continue</button>
       </section>
       <form id="publish-form">
         <h2>Consequential controls</h2>
@@ -39,6 +40,9 @@
       document.querySelector('#publish-form').addEventListener('submit', (event) => {
         event.preventDefault();
         document.querySelector('#status').textContent = 'Report published';
+      });
+      document.querySelector('#authorize-navigation').addEventListener('click', () => {
+        window.location.assign('/research-page.html');
       });
     </script>
   </body>
